@@ -1,0 +1,41 @@
+[
+  {
+    "name": "Áo thun basic cotton",
+    "category": "Thời trang",
+    "description": "Áo thun cotton mềm, dễ phối đồ hằng ngày.",
+    "aliases": ["áo basic", "áo thun cotton"],
+    "image_url": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=700&q=80",
+    "variants": [
+      {"sku": "TSHIRT-WHT-M", "attributes": {"color": "Trắng", "size": "M"}, "unit_price": 199000, "available_quantity": 18},
+      {"sku": "TSHIRT-BLK-L", "attributes": {"color": "Đen", "size": "L"}, "unit_price": 199000, "available_quantity": 9},
+      {"sku": "TSHIRT-BLU-M", "attributes": {"color": "Xanh", "size": "M"}, "unit_price": 209000, "available_quantity": 12},
+      {"sku": "TSHIRT-PNK-S", "attributes": {"color": "Hồng", "size": "S"}, "unit_price": 209000, "available_quantity": 0}
+    ]
+  },
+  {
+    "name": "Bình giữ nhiệt Everyday",
+    "category": "Nhà cửa",
+    "description": "Bình giữ nhiệt thép không gỉ cho ngày dài năng động.",
+    "aliases": ["bình giữ nhiệt", "bình nước inox"],
+    "image_url": "https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=700&q=80",
+    "variants": [
+      {"sku": "BOTTLE-500-WHT", "attributes": {"color": "Trắng", "capacity": "500ml"}, "unit_price": 259000, "available_quantity": 15},
+      {"sku": "BOTTLE-500-MNT", "attributes": {"color": "Xanh bạc hà", "capacity": "500ml"}, "unit_price": 259000, "available_quantity": 7},
+      {"sku": "BOTTLE-750-BLK", "attributes": {"color": "Đen", "capacity": "750ml"}, "unit_price": 319000, "available_quantity": 5},
+      {"sku": "BOTTLE-750-CRM", "attributes": {"color": "Kem", "capacity": "750ml"}, "unit_price": 319000, "available_quantity": 0}
+    ]
+  },
+  {
+    "name": "Cà phê rang xay Đà Lạt",
+    "category": "Thực phẩm",
+    "description": "Cà phê rang vừa, hương thơm cân bằng, đóng gói tiện lợi.",
+    "aliases": ["cà phê Đà Lạt", "cà phê rang xay"],
+    "image_url": "https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=700&q=80",
+    "variants": [
+      {"sku": "COFFEE-250G", "attributes": {"weight": "250g", "grind": "Hạt"}, "unit_price": 145000, "available_quantity": 22},
+      {"sku": "COFFEE-500G", "attributes": {"weight": "500g", "grind": "Hạt"}, "unit_price": 269000, "available_quantity": 14},
+      {"sku": "COFFEE-250G-GRD", "attributes": {"weight": "250g", "grind": "Xay phin"}, "unit_price": 149000, "available_quantity": 11},
+      {"sku": "COFFEE-500G-GRD", "attributes": {"weight": "500g", "grind": "Xay phin"}, "unit_price": 279000, "available_quantity": 4}
+    ]
+  }
+]

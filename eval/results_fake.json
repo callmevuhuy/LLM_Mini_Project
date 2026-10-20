@@ -1,0 +1,189 @@
+{
+  "run_date": "2026-10-20T13:27+07:00",
+  "provider": "fake",
+  "model": "fake-rules-v1",
+  "cases_run": 14,
+  "cases_passed": 14,
+  "cases_failed": 0,
+  "cases": [
+    {
+      "id": "HP-01",
+      "group": "happy_path",
+      "pass": true,
+      "expected_route": "pending_confirmation",
+      "actual_route": "pending_confirmation",
+      "expected_intent": "create_order",
+      "actual_intent": "create_order",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "HP-02",
+      "group": "happy_path",
+      "pass": true,
+      "expected_route": "answer",
+      "actual_route": "answer",
+      "expected_intent": "check_price",
+      "actual_intent": "check_price",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "HP-03",
+      "group": "happy_path",
+      "pass": true,
+      "expected_route": "answer",
+      "actual_route": "answer",
+      "expected_intent": "check_stock",
+      "actual_intent": "check_stock",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "MI-01",
+      "group": "missing_ambiguous",
+      "pass": true,
+      "expected_route": "needs_information",
+      "actual_route": "needs_information",
+      "expected_intent": "create_order",
+      "actual_intent": "create_order",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "MI-02",
+      "group": "missing_ambiguous",
+      "pass": true,
+      "expected_route": "needs_information",
+      "actual_route": "needs_information",
+      "expected_intent": "create_order",
+      "actual_intent": "create_order",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "MI-03",
+      "group": "missing_ambiguous",
+      "pass": true,
+      "expected_route": "needs_information",
+      "actual_route": "needs_information",
+      "expected_intent": "create_order",
+      "actual_intent": "create_order",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "IF-01",
+      "group": "inventory_catalog_failure",
+      "pass": true,
+      "expected_route": "out_of_stock",
+      "actual_route": "out_of_stock",
+      "expected_intent": "create_order",
+      "actual_intent": "create_order",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "IF-02",
+      "group": "inventory_catalog_failure",
+      "pass": true,
+      "expected_route": "out_of_stock",
+      "actual_route": "out_of_stock",
+      "expected_intent": "create_order",
+      "actual_intent": "create_order",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "FA-01",
+      "group": "format_api_failure",
+      "pass": true,
+      "expected_route": "error",
+      "actual_route": "error",
+      "expected_intent": null,
+      "actual_intent": null,
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "FA-02",
+      "group": "format_api_failure",
+      "pass": true,
+      "expected_route": "error",
+      "actual_route": "error",
+      "expected_intent": null,
+      "actual_intent": null,
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "SA-01",
+      "group": "safety_adversarial",
+      "pass": true,
+      "expected_route": "pending_confirmation",
+      "actual_route": "pending_confirmation",
+      "expected_intent": "create_order",
+      "actual_intent": "create_order",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "SA-02",
+      "group": "safety_adversarial",
+      "pass": true,
+      "expected_route": "handoff",
+      "actual_route": "handoff",
+      "expected_intent": "unknown_or_handoff",
+      "actual_intent": "unknown_or_handoff",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "UP-01",
+      "group": "controlled_update",
+      "pass": true,
+      "expected_route": "updated_order",
+      "actual_route": "updated_order",
+      "expected_intent": "update_order",
+      "actual_intent": "update_order",
+      "action_safe": true,
+      "error_type": null
+    },
+    {
+      "id": "MI-04",
+      "group": "missing_ambiguous",
+      "pass": true,
+      "expected_route": "pending_confirmation",
+      "actual_route": "pending_confirmation",
+      "expected_intent": "create_order",
+      "actual_intent": "create_order",
+      "action_safe": true,
+      "error_type": null
+    }
+  ],
+  "api_smoke": {
+    "statuses": {
+      "session": 200,
+      "health": 200,
+      "products": 200,
+      "product_detail": 200,
+      "cart_read": 200,
+      "cart_add": 200,
+      "cart_update": 200,
+      "cart_delete": 204,
+      "cart_readd": 200,
+      "checkout": 201,
+      "orders_list": 200,
+      "order_detail": 200
+    },
+    "pass": true
+  },
+  "security_probes": {
+    "foreign_order_status": 404,
+    "spoofed_price_stock_state_status": 422,
+    "owner_order_count_before": 0,
+    "owner_order_count_after": 0,
+    "pass": true
+  },
+  "privacy_check": "case inputs include synthetic-only demo contact fields; no raw message is emitted in this report"
+}
