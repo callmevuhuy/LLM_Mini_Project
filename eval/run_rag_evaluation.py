@@ -21,8 +21,6 @@ def run_evaluation(bundle_path=DEFAULT_BUNDLE_PATH, cases_path=ROOT / "artifacts
         cases = [c for c in cases if c.get("split") == split]
 
     index = RAGIndex.load(bundle_path)
-    all_chunk_ids = {c.chunk_id for c in index.chunks}
-
     retrieval_hits_at_3 = 0
     retrieval_recalls_at_5: list[float] = []
     reciprocal_ranks: list[float] = []
@@ -41,6 +39,8 @@ def run_evaluation(bundle_path=DEFAULT_BUNDLE_PATH, cases_path=ROOT / "artifacts
     citation_total_count = 0
 
     claim_supported_count = 0
+    route_match_count = 0
+    status_match_count = 0
     total_evaluated_cases = len(cases)
 
     case_results = []
@@ -56,6 +56,8 @@ def run_evaluation(bundle_path=DEFAULT_BUNDLE_PATH, cases_path=ROOT / "artifacts
         # 1. Routing
         decision = route_message(query)
         actual_route = decision.primary_route
+        route_match = actual_route == expected_route
+        route_match_count += int(route_match)
 
         # 2. Retrieval & Generation
         k_query = decision.knowledge_query or query
@@ -85,11 +87,18 @@ def run_evaluation(bundle_path=DEFAULT_BUNDLE_PATH, cases_path=ROOT / "artifacts
 
         answer_obj = generate_grounded_answer(k_query, retrieved, user_role=role)
         actual_status = answer_obj["status"]
+        status_match = actual_status == expected_status
+        status_match_count += int(status_match)
 
         # 3. Citation resolution check
         for cit in answer_obj.get("citations", []):
             citation_total_count += 1
-            if cit.get("chunk_id") in all_chunk_ids:
+            cited_chunk = next((chunk for chunk in index.chunks if chunk.chunk_id == cit.get("chunk_id")), None)
+            if cited_chunk and all(cit.get(key) == getattr(cited_chunk, attr) for key, attr in {
+                "doc_id": "doc_id", "source": "source", "version": "version", "section": "section"
+            }.items()) and cited_chunk.access_level in {
+                "customer": {"public"}, "staff": {"public", "staff"}, "admin": {"public", "staff", "admin"}
+            }.get(role, {"public"}):
                 citation_resolved_count += 1
 
         # 4. Check category specific goals
@@ -121,8 +130,8 @@ def run_evaluation(bundle_path=DEFAULT_BUNDLE_PATH, cases_path=ROOT / "artifacts
         case_results.append({
             "id": cid,
             "category": category,
-            "route_match": (actual_route == expected_route),
-            "status_match": (actual_status == expected_status),
+            "route_match": route_match,
+            "status_match": status_match,
             "actual_route": actual_route,
             "actual_status": actual_status,
             "citations": [c["chunk_id"] for c in answer_obj.get("citations", [])],
@@ -152,6 +161,8 @@ def run_evaluation(bundle_path=DEFAULT_BUNDLE_PATH, cases_path=ROOT / "artifacts
             "Safe_Abstention_Rate": round(abstention_rate * 100, 2),
             "Access_Denied_Rate": round(access_denied_rate * 100, 2),
             "Mixed_Route_Accuracy": round(mixed_accuracy * 100, 2),
+            "Route_Accuracy": round(route_match_count / total_evaluated_cases * 100, 2) if total_evaluated_cases else 100.0,
+            "Status_Accuracy": round(status_match_count / total_evaluated_cases * 100, 2) if total_evaluated_cases else 100.0,
         },
         "case_results": case_results,
     }

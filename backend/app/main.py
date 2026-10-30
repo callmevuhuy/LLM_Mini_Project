@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import hashlib
+import json
 import os
 import secrets
 import time
@@ -25,6 +26,7 @@ from .schemas import (
 from .seed import initialize_database
 from pathlib import Path
 import sys
+from typing import Literal
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -34,17 +36,25 @@ from src.rag import RAGIndex, generate_grounded_answer, DEFAULT_BUNDLE_PATH
 from src.router import route_message
 
 _active_rag_index: RAGIndex | None = None
+ACTIVE_INDEX_POINTER = REPO_ROOT / "artifacts" / "active_index.json"
 
 
 def get_active_rag_index() -> RAGIndex:
     global _active_rag_index
-    if _active_rag_index is None:
-        bundle_file = REPO_ROOT / "artifacts" / "index_bundle.json"
+    bundle_name = "index_bundle.json"
+    if ACTIVE_INDEX_POINTER.exists():
+        pointer = json.loads(ACTIVE_INDEX_POINTER.read_text(encoding="utf-8"))
+        bundle_name = pointer.get("bundle", "")
+        if bundle_name not in {"index_bundle.json", "index_bundle_v1_1.json"}:
+            raise ValueError("Active index pointer contains an invalid bundle name")
+    bundle_file = REPO_ROOT / "artifacts" / bundle_name
+    if _active_rag_index is None or _active_rag_index.manifest_meta.get("index_bundle") != bundle_name:
         if not bundle_file.exists():
             from src.indexer import run_indexing
             _active_rag_index = run_indexing(output_bundle=str(bundle_file), version="1.0")
         else:
             _active_rag_index = RAGIndex.load(bundle_file)
+        _active_rag_index.manifest_meta["index_bundle"] = bundle_name
     return _active_rag_index
 
 
@@ -74,7 +84,7 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-User-Role", "X-Demo-Role-Token"],
 )
 
 
@@ -93,6 +103,19 @@ def require_allowed_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     if origin and origin not in ALLOWED_ORIGINS:
         raise HTTPException(status_code=403, detail="Origin không được phép.")
+
+
+def resolve_demo_role(request: Request) -> str:
+    """Resolve demo roles only when the caller presents a server-configured token."""
+    role = request.headers.get("x-user-role", "customer").lower()
+    if role == "customer":
+        return role
+    token_env = {"staff": "DEMO_STAFF_TOKEN", "admin": "DEMO_ADMIN_TOKEN"}.get(role)
+    expected = os.getenv(token_env, "") if token_env else ""
+    provided = request.headers.get("x-demo-role-token", "")
+    if not expected or not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=403, detail="Vai trò demo không hợp lệ hoặc chưa được cấu hình.")
+    return role
 
 
 def token_digest(token: str) -> str:
@@ -541,9 +564,7 @@ async def chat_message(
         for session_id, (seen_window, _) in list(_chat_rate_windows.items()):
             if seen_window < window - 1:
                 _chat_rate_windows.pop(session_id, None)
-    user_role = request.headers.get("x-user-role", "customer").lower()
-    if user_role not in {"customer", "staff", "admin"}:
-        user_role = "customer"
+    user_role = resolve_demo_role(request)
 
     route_decision = route_message(payload.message)
 
@@ -575,6 +596,20 @@ async def chat_message(
         db.add(ChatLog(session_id=demo_session.id, client_message_id=payload.client_message_id,
             request_id=request.state.request_id, model_id="rag-v1", prompt_version=PROMPT_VERSION,
             intent="safety_adversarial", validation_status="rejected", route="handoff",
+            latency_ms=1, retry_count=0, response_payload=answer, created_at=datetime.now(timezone.utc)))
+        db.commit()
+        return answer
+
+    pending_followup = False
+    if route_decision.primary_route == "handoff":
+        pending_followup = db.scalar(select(ChatState).where(
+            ChatState.session_id == demo_session.id, ChatState.expires_at > int(time.time())
+        )) is not None
+    if route_decision.primary_route == "handoff" and not pending_followup:
+        answer = {"route": "handoff", "message": "Yêu cầu này cần nhân viên hỗ trợ. Đây là bản demo nên mình chưa gửi tin cho nhân viên thật; bạn có thể tiếp tục hỏi về sản phẩm, chính sách hoặc đơn nháp."}
+        db.add(ChatLog(session_id=demo_session.id, client_message_id=payload.client_message_id,
+            request_id=request.state.request_id, model_id="router-v1", prompt_version=PROMPT_VERSION,
+            intent="unknown_or_handoff", validation_status="needs_human_review", route="handoff",
             latency_ms=1, retry_count=0, response_payload=answer, created_at=datetime.now(timezone.utc)))
         db.commit()
         return answer
@@ -763,9 +798,15 @@ def get_rag_status():
 
 
 @app.post("/api/v1/rag/reindex")
-def trigger_rag_reindex(request: Request, version: str = Query("1.1"), db: Session = Depends(get_db)):
+def trigger_rag_reindex(
+    request: Request,
+    version: Literal["1.0", "1.1"] = Query("1.1"),
+    db: Session = Depends(get_db),
+    demo_session: DemoSession = Depends(get_current_session),
+):
     global _active_rag_index
-    user_role = request.headers.get("x-user-role", "customer").lower()
+    require_allowed_origin(request)
+    user_role = resolve_demo_role(request)
     if user_role != "admin":
         raise HTTPException(status_code=403, detail="Chỉ quản trị viên (Admin) mới có quyền re-index.")
     
@@ -777,15 +818,24 @@ def trigger_rag_reindex(request: Request, version: str = Query("1.1"), db: Sessi
         else:
             run_indexing(output_bundle=str(target_bundle), version="1.0")
     
-    _active_rag_index = RAGIndex.load(target_bundle)
+    new_index = RAGIndex.load(target_bundle)
     req_id = getattr(request.state, "request_id", uuid4().hex)
     db.add(AuditLog(request_id=req_id, action=f"rag_reindex_{version}",
-        actor_session_id=None, details={"version": version, "total_chunks": len(_active_rag_index.chunks)},
+        actor_session_id=demo_session.id, details={"version": version, "total_chunks": len(new_index.chunks)},
         created_at=datetime.now(timezone.utc)))
     db.commit()
+    bundle_name = target_bundle.name
+    pointer_path = ACTIVE_INDEX_POINTER.with_name(f".{ACTIVE_INDEX_POINTER.name}.{uuid4().hex}.tmp")
+    try:
+        pointer_path.write_text(json.dumps({"bundle": bundle_name}), encoding="utf-8")
+        os.replace(pointer_path, ACTIVE_INDEX_POINTER)
+    finally:
+        pointer_path.unlink(missing_ok=True)
+    new_index.manifest_meta["index_bundle"] = bundle_name
+    _active_rag_index = new_index
     return {
         "status": "reindexed",
-        "active_version": version,
+        "active_version": new_index.manifest_meta.get("corpus_version", version),
         "total_chunks": len(_active_rag_index.chunks),
         "message": f"Chỉ mục RAG phiên bản {version} đã được kích hoạt thành công."
     }

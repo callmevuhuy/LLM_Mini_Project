@@ -8,6 +8,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api
 const money = (value) => new Intl.NumberFormat("vi-VN").format(value) + "₫";
 
 let activeRole = "customer";
+let activeRoleToken = "";
 
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -16,6 +17,7 @@ async function api(path, options = {}) {
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       "X-User-Role": activeRole,
+      ...(activeRoleToken ? { "X-Demo-Role-Token": activeRoleToken } : {}),
       ...options.headers,
     },
   });
@@ -65,7 +67,12 @@ function App() {
   const didInitialize = useRef(false);
 
   const switchRole = (newRole) => {
+    const token = newRole === "customer"
+      ? ""
+      : window.prompt(`Nhập token demo ${newRole} đã cấu hình ở backend:`)?.trim();
+    if (newRole !== "customer" && !token) return;
     activeRole = newRole;
+    activeRoleToken = token || "";
     setDemoRoleState(newRole);
   };
 

@@ -3,11 +3,31 @@
   "bundle_file": "index_bundle.json",
   "manifest": {
     "corpus_version": "1.0",
-    "embedding_model": "deterministic-ngram-tfidf-v1",
+    "index_version": "1.0",
+    "embedding_model": "deterministic-hashed-ngram-tf-v1",
+    "model_revision": "1",
+    "query_document_encoding": "same Vietnamese normalization, word tokens, and character trigrams",
+    "normalization": "accent-insensitive text; L2-normalized vectors",
+    "distance_metric": "cosine_similarity",
+    "chunking_config": "markdown_h2_v1",
     "dim": 1024,
     "total_documents": 12,
     "total_chunks": 31,
-    "created_at": "2026-10-30T14:30:00Z"
+    "source_sha256": {
+      "CAT-TSHIRT-01": "39672945014d8bd7656f5aa1ed1876ff2dbad6246d6b807ed6dacea32440a172",
+      "CAT-BOTTLE-01": "1ab4e3d862d06c7d5390274e9a6a2e20ab9f4e033299d8cb8b034aa4c72ae617",
+      "CAT-COFFEE-01": "5a53ee0c35df68c61c937b5fd13aa5db866aef54a19bf841c8e3343c863f2aa7",
+      "CAT-SIZING-01": "1a6524bda4354a7a6de4fe4a8fce80dcdeed078f58944543cf8b1f20b6649487",
+      "POL-RETURN-01": "20485a8423523df78a980ea8e6a40324c44d93fc0f6317a887ac9ea6f77420c6",
+      "POL-WARRANTY-01": "fc268a19374fa633c06312ae8bed60bc888a39c65636046d8deece380cbdac7e",
+      "POL-SHIPPING-01": "745d93b38e26f4f2d9db385bc7c02c39aa3b7853f421844d309ec2822c9264fd",
+      "FAQ-ORDER-01": "ff970d5cc62ff834a45589361ee24723d8bc4ba397fb036a1d6668285098406d",
+      "FAQ-CARE-01": "3c3857a7b5ce36a719238d7fc4a5c768f1abc0f117cd0418fd6547b88e812414",
+      "INT-STAFF-SOP-01": "c751ee66664f2e974bd2736511022fc6175a9fc1ccd4614c4bc9a42fd049e3f9",
+      "INT-DISCOUNT-01": "c06666684a7f8d63ae44a98c6c247f258951e6aa284daba0c5e783adcb2981a7",
+      "INT-ADMIN-OPS-01": "7b461005f64d9a28227f1d499a33cf6465a1da3a3fff451a5a08b3fa96b411f7"
+    },
+    "created_at": "2026-10-30T08:35:09+00:00"
   },
   "sample_chunk_ids": [
     "CAT-TSHIRT-01#c01",

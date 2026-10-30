@@ -4,16 +4,19 @@ permission-aware retrieval, and grounded answer generation.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 import os
 import re
 import unicodedata
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-# shortcut: Term-hash TF-IDF vectorizer covers local deterministic retrieval; upgrade to dense bi-encoder (e.g. BGE-M3/Ollama) when corpus exceeds 5,000 documents.
+# shortcut: Local hashed term-frequency vectors are lexical; use a measured semantic embedder if paraphrase quality misses the frozen set.
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS_DIR = ROOT_DIR / "data" / "corpus"
@@ -32,7 +35,8 @@ def normalize_text(text: str) -> str:
 STOP_WORDS = {
     "la", "va", "cua", "cho", "toi", "minh", "shop", "duoc", "ve", "de",
     "co", "khong", "thi", "nhung", "nao", "gi", "sao", "giup", "voi", "ban", "vay",
-    "mot", "hai", "ba", "nhung", "cac", "nhung", "nay", "do", "kia"
+    "mot", "hai", "ba", "nhung", "cac", "nay", "do", "kia",
+    "thoi", "han", "bao", "lau", "ngay", "nhieu"
 }
 
 
@@ -64,7 +68,7 @@ class Chunk:
 
 
 class DeterministicEmbedder:
-    """Reproducible local n-gram TF-IDF vectorizer (deterministic, offline)."""
+    """Reproducible local hashed word/character term-frequency vectors."""
     DIM = 1024
 
     def __init__(self, dim: int = 1024):
@@ -123,6 +127,24 @@ class RAGIndex:
             raise ValueError(
                 f"Index bundle corrupt: {len(self.chunks)} chunks != {len(self.vectors)} vectors"
             )
+        expected_dim = self.manifest_meta.get("dim")
+        if not isinstance(expected_dim, int) or expected_dim <= 0:
+            raise ValueError("Index bundle corrupt: invalid vector dimension metadata")
+        chunk_ids = [chunk.chunk_id for chunk in self.chunks]
+        if len(chunk_ids) != len(set(chunk_ids)):
+            raise ValueError("Index bundle corrupt: duplicate chunk IDs")
+        if any(chunk.access_level not in {"public", "staff", "admin"} for chunk in self.chunks):
+            raise ValueError("Index bundle corrupt: invalid chunk access level")
+        if self.manifest_meta.get("total_chunks") != len(self.chunks):
+            raise ValueError("Index bundle corrupt: manifest chunk count mismatch")
+        if self.manifest_meta.get("total_documents") != len({chunk.doc_id for chunk in self.chunks}):
+            raise ValueError("Index bundle corrupt: manifest document count mismatch")
+        if any(
+            len(vector) != expected_dim
+            or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in vector)
+            for vector in self.vectors
+        ):
+            raise ValueError("Index bundle corrupt: invalid vector dimensions or values")
 
     def retrieve(
         self,
@@ -136,7 +158,10 @@ class RAGIndex:
             user_role.lower(), {"public"}
         )
 
-        query_vec = self.embedder.embed(query)
+        retrieval_query = query
+        if "doi tra" in normalize_text(query):
+            retrieval_query += " đổi hàng hoàn tiền chính sách đổi trả"
+        query_vec = self.embedder.embed(retrieval_query)
         candidates: list[tuple[Chunk, float]] = []
 
         for chunk, vec in zip(self.chunks, self.vectors):
@@ -158,7 +183,13 @@ class RAGIndex:
             "chunks": [c.to_dict() for c in self.chunks],
             "vectors": self.vectors,
         }
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        data["integrity_sha256"] = hashlib.sha256(_canonical_json(data).encode("utf-8")).hexdigest()
+        temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            temp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(temp_path, path)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     @classmethod
     def load(cls, file_path: Path | str) -> RAGIndex:
@@ -166,10 +197,18 @@ class RAGIndex:
         if not path.exists():
             raise FileNotFoundError(f"Index bundle not found: {path}")
         data = json.loads(path.read_text(encoding="utf-8"))
+        expected_hash = data.pop("integrity_sha256", None)
+        actual_hash = hashlib.sha256(_canonical_json(data).encode("utf-8")).hexdigest()
+        if not isinstance(expected_hash, str) or not hmac.compare_digest(expected_hash, actual_hash):
+            raise ValueError("Index bundle integrity check failed")
         chunks = [Chunk(**c) for c in data["chunks"]]
         vectors = data["vectors"]
         manifest_meta = data["manifest"]
         return cls(chunks=chunks, vectors=vectors, manifest_meta=manifest_meta)
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def chunk_document(doc_meta: dict[str, Any], text: str) -> list[Chunk]:
@@ -177,7 +216,7 @@ def chunk_document(doc_meta: dict[str, Any], text: str) -> list[Chunk]:
     doc_id = doc_meta["doc_id"]
     source = doc_meta["title"]
     version = doc_meta.get("version", "1.0")
-    access_level = doc_meta.get("access_level", "public")
+    access_level = doc_meta["access_level"]
 
     chunks: list[Chunk] = []
     # Split by level 2 headings '## '
@@ -223,23 +262,47 @@ def build_index_bundle(
         raise FileNotFoundError(f"Corpus manifest missing: {m_path}")
 
     manifest_docs: list[dict[str, Any]] = json.loads(m_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest_docs, list) or not manifest_docs:
+        raise ValueError("Corpus manifest must contain at least one document")
+    c_dir = c_dir.resolve()
     all_chunks: list[Chunk] = []
     embedder = DeterministicEmbedder()
 
     seen_ids: set[str] = set()
+    seen_files: set[str] = set()
+    source_hashes: dict[str, str] = {}
     for doc in manifest_docs:
+        if not isinstance(doc, dict):
+            raise ValueError("Every manifest entry must be an object")
+        required = {"doc_id", "filename", "title", "version", "access_level", "author"}
+        missing = required - doc.keys()
+        if missing:
+            raise ValueError(f"Manifest entry is missing required metadata: {sorted(missing)}")
+        if not all(isinstance(doc[key], str) and doc[key].strip() for key in required):
+            raise ValueError("Required manifest metadata must be non-empty strings")
+        if doc["access_level"] not in {"public", "staff", "admin"}:
+            raise ValueError(f"Invalid access level for document {doc['doc_id']}")
         doc_id = doc["doc_id"]
         if doc_id in seen_ids:
             raise ValueError(f"Duplicate document ID detected: {doc_id}")
         seen_ids.add(doc_id)
 
-        file_path = c_dir / doc["filename"]
+        filename = doc["filename"]
+        if Path(filename).is_absolute() or Path(filename).suffix.lower() != ".md":
+            raise ValueError(f"Invalid corpus filename: {filename}")
+        file_path = (c_dir / filename).resolve()
+        if c_dir not in file_path.parents:
+            raise ValueError(f"Corpus file escapes configured directory: {filename}")
+        if filename in seen_files:
+            raise ValueError(f"Duplicate corpus filename detected: {filename}")
+        seen_files.add(filename)
         if not file_path.exists():
             raise FileNotFoundError(f"Missing corpus file: {file_path}")
 
         text = file_path.read_text(encoding="utf-8").strip()
         if not text:
             raise ValueError(f"Empty corpus file: {file_path}")
+        source_hashes[doc_id] = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
         chunks = chunk_document(doc, text)
         all_chunks.extend(chunks)
@@ -247,11 +310,18 @@ def build_index_bundle(
     vectors = [embedder.embed(chunk.text) for chunk in all_chunks]
     bundle_meta = {
         "corpus_version": version,
-        "embedding_model": "deterministic-ngram-tfidf-v1",
+        "index_version": version,
+        "embedding_model": "deterministic-hashed-ngram-tf-v1",
+        "model_revision": "1",
+        "query_document_encoding": "same Vietnamese normalization, word tokens, and character trigrams",
+        "normalization": "accent-insensitive text; L2-normalized vectors",
+        "distance_metric": "cosine_similarity",
+        "chunking_config": "markdown_h2_v1",
         "dim": embedder.dim,
         "total_documents": len(manifest_docs),
         "total_chunks": len(all_chunks),
-        "created_at": "2026-10-30T14:30:00Z",
+        "source_sha256": source_hashes,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     return RAGIndex(chunks=all_chunks, vectors=vectors, manifest_meta=bundle_meta, embedder=embedder)
 
@@ -309,7 +379,34 @@ def generate_grounded_answer(
             "missing_information": "no_matching_evidence_in_corpus",
         }
 
-    # Assemble context and citations
+    # Prefer evidence for the requested topic; unrelated higher-ranked chunks
+    # must not determine the answer.
+    topic_terms = {
+        "POL-RETURN": ["doi tra", "hoan tien", "doi hang", "tra lai"],
+        "POL-WARRANTY": ["bao hanh", "ngap nuoc", "roi vo"],
+        "POL-SHIPPING": ["giao hang", "dong kiem", "may gio", "hen gio"],
+        "FAQ-ORDER": ["thieu hang", "bao thieu"],
+        "FAQ-CARE": ["ve sinh", "khu mui"],
+        "CAT-COFFEE": ["coffee", "ca phe"],
+        "CAT-TSHIRT": ["tshirt", "ao thun", "chat lieu", "vai", "mau"],
+        "CAT-SIZING": ["size", "cao", "nang", "kg"],
+    }
+    preferred = next((doc for doc, terms in topic_terms.items() if any(t in q_norm for t in terms)), None)
+    if preferred:
+        retrieved = sorted(retrieved, key=lambda item: item[0].doc_id.startswith(preferred), reverse=True)
+
+    # Cite only chunks from the source used to answer.
+    cited_chunks = retrieved
+    if preferred:
+        matching = [item for item in retrieved if item[0].doc_id.startswith(preferred)]
+        if not matching:
+            return {
+                "status": "insufficient_evidence",
+                "answer": "Rất tiếc, tài liệu phù hợp không cung cấp đủ bằng chứng để trả lời câu hỏi này.",
+                "citations": [],
+                "missing_information": "topic_evidence_not_retrieved",
+            }
+        cited_chunks = matching
     citations = [
         {
             "chunk_id": chunk.chunk_id,
@@ -318,7 +415,7 @@ def generate_grounded_answer(
             "version": chunk.version,
             "section": chunk.section,
         }
-        for chunk, _ in retrieved
+        for chunk, _ in cited_chunks
     ]
 
     # Grounded synthesis: extract key factual statements from context
@@ -329,10 +426,34 @@ def generate_grounded_answer(
         text = chunk.text
         # Answer specific topics directly based on retrieved text
         if "POL-RETURN" in chunk.doc_id:
-            days = "14 ngày" if chunk.version == "1.1" or "14 ngày" in text else "07 ngày"
-            cost = "Cửa hàng hỗ trợ 100% phí vận chuyển 2 chiều" if chunk.version == "1.1" or "hỗ trợ 100%" in text else "khách thanh toán phí 2 chiều nếu đổi ý, shop chịu 100% phí nếu do lỗi sản xuất"
-            answers.append(f"Theo {chunk.source} (bản v{chunk.version}): Bạn được đổi trả trong vòng {days} kể từ khi nhận hàng. Điều kiện: sản phẩm còn nguyên tem mác, chưa qua sử dụng và có video mở kiện (unbox). Về chi phí: {cost}.")
-            break
+            requested = []
+            if any(term in q_norm for term in ["dieu kien", "can gi", "tem mac"]):
+                requested.append("Điều kiện")
+            if any(term in q_norm for term in ["chi phi", "phi ship", "van chuyen"]):
+                requested.append("Chi phí")
+            if any(term in q_norm for term in ["thoi han", "bao lau", "bao nhieu ngay", "may ngay"]):
+                requested.append("Thời hạn")
+            selected = [item[0] for item in cited_chunks if not requested or any(
+                normalize_text(term) in normalize_text(item[0].section) for term in requested
+            )]
+            if not selected or any(not any(
+                normalize_text(term) in normalize_text(item[0].section) for item in cited_chunks
+            ) for term in requested):
+                return {
+                    "status": "insufficient_evidence",
+                    "answer": "Rất tiếc, tài liệu phù hợp không cung cấp đủ bằng chứng để trả lời phần này.",
+                    "citations": [],
+                    "missing_information": "requested_return_section_not_retrieved",
+                }
+            answer_text = " ".join(" ".join(item.text.splitlines()[1:]).strip() for item in selected)
+            answer_citations = [{
+                "chunk_id": item.chunk_id, "doc_id": item.doc_id, "source": item.source,
+                "version": item.version, "section": item.section,
+            } for item in selected]
+            return {
+                "status": "answered", "answer": f"Theo {chunk.source} (bản v{chunk.version}): {answer_text}",
+                "citations": answer_citations, "missing_information": "",
+            }
         elif "POL-WARRANTY" in chunk.doc_id:
             if any(k in q_norm for k in ["ngap nuoc", "nuoc", "roi vo", "chong nuoc"]):
                 answers.append("Theo Chính sách Bảo hành: Sản phẩm hư hỏng do ngập nước, ẩm ướt kéo dài hoặc rơi vỡ từ phía người dùng thuộc trường hợp từ chối bảo hành.")

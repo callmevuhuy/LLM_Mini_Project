@@ -19,7 +19,8 @@ KNOWLEDGE_PATTERNS = [
     r"\bbao thieu\b", r"\bthieu hang\b", r"\bmay ngay\b", r"\bbao lau\b", r"\bxuat xu\b",
     r"\bgiu nong\b", r"\bgiu lanh\b", r"\bmay tieng\b", r"\bstaff\b", r"\bchiet khau\b", r"\bma giam gia\b", r"\bnoi bo\b",
     r"\bsop\b", r"\bwms\b", r"\bcamera kho\b", r"\blay lai tien\b", r"\btra lai\b", r"\bdoi hang\b",
-    r"\bsua mien phi\b", r"\bsneaker\b", r"\bgiay\b", r"\bgiao gap\b", r"\bmay gio\b", r"\bhen gio\b"
+    r"\bsua mien phi\b", r"\bsneaker\b", r"\bgiay\b", r"\bgiao gap\b", r"\bmay gio\b", r"\bhen gio\b",
+    r"\bsku\b", r"\bquy cach\b", r"\bnguoi cao\b", r"\bnang\s+\d", r"\bthieu\b"
 ]
 
 ORDER_ACTION_PATTERNS = [
@@ -30,7 +31,7 @@ ORDER_ACTION_PATTERNS = [
 
 ORDER_READ_PATTERNS = [
     r"\bgia\s+bao\s+nhieu\b", r"\bgia\s+the\s+nao\b", r"\bgia\s+sao\b",
-    r"(?<!giam\s)\bgia\b", r"\bcon hang\b", r"\bton kho\b", r"\bco hang\b",
+    r"(?<!giam\s)\bgia\b", r"\bcon hang\b", r"\bton kho\b", r"\bco hang\b", r"\btinh trang\b",
     r"\bcon size\b", r"\bhet hang\b"
 ]
 
@@ -40,7 +41,8 @@ HANDOFF_PATTERNS = [
 
 SAFETY_PATTERNS = [
     r"\bbo qua moi chinh sach\b", r"\bbo qua chinh sach\b", r"\bbo qua huong dan\b",
-    r"\btiet lo api key\b", r"\btiet lo secret\b", r"\bxoa moi don hang\b", r"\bhack\b", r"\bbypass\b"
+    r"\btiet lo api key\b", r"\btiet lo secret\b", r"\bkhoa api secret\b", r"\bxoa moi don hang\b",
+    r"\bhuy het tat ca don hang\b", r"\bhack\b", r"\bbypass\b"
 ]
 
 
