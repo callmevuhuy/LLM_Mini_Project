@@ -1,4 +1,6 @@
-# Phase D — Evaluation results
+# Archived LLM Phase D — Evaluation results
+
+> These results cover only the inherited order assistant. They are not RAG retrieval, citation, or access-control results.
 
 ## Setup and scope
 
@@ -11,11 +13,11 @@ Run from the repository root in PowerShell:
 .\backend\.venv\Scripts\python.exe eval\run_evaluation.py --provider ollama --model qwen3.5:2b-q4_K_M
 ```
 
-Full reports are [`../eval/results_fake.json`](../eval/results_fake.json) and [`../eval/results_ollama.json`](../eval/results_ollama.json). A focused run (`--limit` or `--case-id`) writes `eval/latest_results.json`.
+Full reports are [`../eval/results_fake.json`](../eval/results_fake.json) and [`../eval/results_ollama.json`](../eval/results_ollama.json). A focused run (`--limit` or `--case-id`) writes `../eval/latest_results.json`.
 
 ## Results
 
-Run on 2026-10-20 with prompt `order-extraction-v2`; Ollama was configured for `qwen3.5:2b-q4_K_M`, `think=false`, context 4096 and temperature 0.
+Re-run on 2026-10-22 with prompt `order-extraction-v2`; Ollama was configured for `qwen3.5:2b-q4_K_M`, `think=false`, context 4096 and temperature 0. This run also rebuilt the frontend and exercised catalog, chat, cart, and checkout through the local browser UI.
 
 | Provider | Chat cases | API smoke | Catalog/inventory | Security probes |
 | --- | ---: | --- | ---: | --- |

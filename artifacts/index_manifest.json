@@ -1,0 +1,20 @@
+{
+  "active_version": "1.0",
+  "bundle_file": "index_bundle.json",
+  "manifest": {
+    "corpus_version": "1.0",
+    "embedding_model": "deterministic-ngram-tfidf-v1",
+    "dim": 1024,
+    "total_documents": 12,
+    "total_chunks": 31,
+    "created_at": "2026-10-30T14:30:00Z"
+  },
+  "sample_chunk_ids": [
+    "CAT-TSHIRT-01#c01",
+    "CAT-TSHIRT-01#c02",
+    "CAT-TSHIRT-01#c03",
+    "CAT-BOTTLE-01#c01",
+    "CAT-BOTTLE-01#c02"
+  ],
+  "total_chunks": 31
+}

@@ -12,6 +12,7 @@ CATALOG_PATH = Path(__file__).resolve().parents[2] / "data" / "seed_catalog.json
 
 
 def seed_catalog(db: Session) -> None:
+    """Insert the mock catalog only when the products table is empty."""
     existing = db.scalar(select(func.count()).select_from(Product))
     if existing:
         return
@@ -38,6 +39,7 @@ def seed_catalog(db: Session) -> None:
 
 
 def initialize_database() -> None:
+    """Create missing tables and seed the catalog using the configured database."""
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed_catalog(db)

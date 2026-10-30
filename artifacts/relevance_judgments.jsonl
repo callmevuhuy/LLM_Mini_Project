@@ -1,0 +1,20 @@
+{"query_id": "RAG-EX-01", "relevant_chunk_ids": ["POL-WARRANTY-01#c01"]}
+{"query_id": "RAG-EX-02", "relevant_chunk_ids": ["CAT-TSHIRT-01#c02"]}
+{"query_id": "RAG-EX-03", "relevant_chunk_ids": ["CAT-BOTTLE-01#c01"]}
+{"query_id": "RAG-EX-04", "relevant_chunk_ids": ["CAT-COFFEE-01#c02"]}
+{"query_id": "RAG-PA-01", "relevant_chunk_ids": ["POL-WARRANTY-01#c02"]}
+{"query_id": "RAG-PA-02", "relevant_chunk_ids": ["POL-RETURN-01#c01", "POL-RETURN-01#c02", "POL-RETURN-01#c03", "POL-SHIPPING-01#c02"]}
+{"query_id": "RAG-PA-03", "relevant_chunk_ids": ["CAT-TSHIRT-01#c01"]}
+{"query_id": "RAG-PA-04", "relevant_chunk_ids": ["CAT-SIZING-01#c01", "CAT-SIZING-01#c02"]}
+{"query_id": "RAG-MC-01", "relevant_chunk_ids": ["POL-RETURN-01#c02", "POL-RETURN-01#c03"]}
+{"query_id": "RAG-MC-02", "relevant_chunk_ids": ["FAQ-ORDER-01#c02", "POL-SHIPPING-01#c02"]}
+{"query_id": "RAG-MC-03", "relevant_chunk_ids": ["FAQ-CARE-01#c01", "CAT-BOTTLE-01#c03"]}
+{"query_id": "RAG-NE-01", "relevant_chunk_ids": []}
+{"query_id": "RAG-NE-02", "relevant_chunk_ids": ["POL-SHIPPING-01#c01"]}
+{"query_id": "RAG-AD-01", "relevant_chunk_ids": []}
+{"query_id": "RAG-AD-02", "relevant_chunk_ids": []}
+{"query_id": "RAG-MX-01", "relevant_chunk_ids": ["POL-RETURN-01#c01", "CAT-TSHIRT-01#c01", "CAT-TSHIRT-01#c02"]}
+{"query_id": "RAG-MX-02", "relevant_chunk_ids": ["CAT-BOTTLE-01#c01"]}
+{"query_id": "RAG-MX-03", "relevant_chunk_ids": ["POL-WARRANTY-01#c01"]}
+{"query_id": "RAG-SA-01", "relevant_chunk_ids": []}
+{"query_id": "RAG-SA-02", "relevant_chunk_ids": []}

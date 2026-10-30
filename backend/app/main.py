@@ -23,10 +23,34 @@ from .schemas import (
     HealthRead, OrderItemRead, OrderRead, ProductRead, ChatMessageWrite, ChatMessageRead,
 )
 from .seed import initialize_database
+from pathlib import Path
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from src.rag import RAGIndex, generate_grounded_answer, DEFAULT_BUNDLE_PATH
+from src.router import route_message
+
+_active_rag_index: RAGIndex | None = None
+
+
+def get_active_rag_index() -> RAGIndex:
+    global _active_rag_index
+    if _active_rag_index is None:
+        bundle_file = REPO_ROOT / "artifacts" / "index_bundle.json"
+        if not bundle_file.exists():
+            from src.indexer import run_indexing
+            _active_rag_index = run_indexing(output_bundle=str(bundle_file), version="1.0")
+        else:
+            _active_rag_index = RAGIndex.load(bundle_file)
+    return _active_rag_index
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    """Prepare the SQLite schema and seed data before accepting API requests."""
     initialize_database()
     yield
 
@@ -56,6 +80,7 @@ app.add_middleware(
 
 @app.middleware("http")
 async def attach_request_id(request: Request, call_next):
+    """Assign a correlation ID to the request and expose it on the response."""
     request_id = uuid4().hex
     request.state.request_id = request_id
     response = await call_next(request)
@@ -64,18 +89,21 @@ async def attach_request_id(request: Request, call_next):
 
 
 def require_allowed_origin(request: Request) -> None:
+    """Reject browser writes from origins outside the local demo allowlist."""
     origin = request.headers.get("origin")
     if origin and origin not in ALLOWED_ORIGINS:
         raise HTTPException(status_code=403, detail="Origin không được phép.")
 
 
 def token_digest(token: str) -> str:
+    """Hash the opaque session cookie before looking it up in the database."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def get_current_session(
     request: Request, db: Session = Depends(get_db)
 ) -> DemoSession:
+    """Resolve a non-expired demo session from its HttpOnly cookie."""
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(status_code=401, detail="Phiên mua sắm đã hết hạn.")
@@ -91,6 +119,7 @@ def get_current_session(
 
 
 def get_or_create_cart(db: Session, session_id: int) -> Cart:
+    """Return the session's cart, creating it in the current transaction if absent."""
     cart = db.scalar(select(Cart).where(Cart.session_id == session_id))
     if cart is None:
         cart = Cart(session_id=session_id)
@@ -100,6 +129,7 @@ def get_or_create_cart(db: Session, session_id: int) -> Cart:
 
 
 def load_cart_items(db: Session, cart_id: int) -> list[CartItemRead]:
+    """Join cart rows to trusted catalog data and calculate display line totals."""
     rows = db.execute(
         select(CartItem, ProductVariant, Product, Inventory)
         .join(ProductVariant, ProductVariant.sku == CartItem.sku)
@@ -124,6 +154,7 @@ def load_cart_items(db: Session, cart_id: int) -> list[CartItemRead]:
 
 
 def order_response(order: Order) -> OrderRead:
+    """Build an API response from the order's persisted catalog snapshots."""
     return OrderRead(
         id=order.id,
         status=order.status,
@@ -148,6 +179,7 @@ def order_response(order: Order) -> OrderRead:
 
 @app.get("/api/v1/health", response_model=HealthRead, tags=["system"])
 def health(db: Session = Depends(get_db)):
+    """Report API/database readiness and the number of catalog products."""
     return {"status": "ok", "database": "sqlite", "product_count": db.query(Product).count()}
 
 
@@ -157,6 +189,7 @@ def list_products(
     category: str | None = Query(default=None, max_length=60),
     db: Session = Depends(get_db),
 ):
+    """List active catalog products, optionally filtering by text and category."""
     statement = (
         select(Product)
         .where(Product.active.is_(True))
@@ -197,6 +230,7 @@ def list_products(
 
 @app.get("/api/v1/products/{product_id}", response_model=ProductRead, tags=["catalog"])
 def get_product(product_id: int, db: Session = Depends(get_db)):
+    """Return one active product with variants, prices, and current stock."""
     statement = (
         select(Product)
         .where(Product.id == product_id, Product.active.is_(True))
@@ -231,6 +265,7 @@ def create_or_resume_session(
     response: Response,
     db: Session = Depends(get_db),
 ):
+    """Resume a valid demo session or issue a new opaque HttpOnly cookie."""
     require_allowed_origin(request)
     current_token = request.cookies.get(SESSION_COOKIE)
     demo_session = None
@@ -265,6 +300,7 @@ def create_or_resume_session(
 
 @app.get("/api/v1/session", response_model=DemoSessionRead, tags=["demo session"])
 def read_session(demo_session: DemoSession = Depends(get_current_session)):
+    """Return active session status without exposing its internal database ID."""
     return {"active": True, "expires_at": demo_session.expires_at}
 
 
@@ -273,6 +309,7 @@ def read_cart(
     db: Session = Depends(get_db),
     demo_session: DemoSession = Depends(get_current_session),
 ):
+    """Read the caller's cart and calculate its subtotal from SQLite prices."""
     cart = get_or_create_cart(db, demo_session.id)
     db.commit()
     items = load_cart_items(db, cart.id)
@@ -286,6 +323,7 @@ def add_cart_item(
     db: Session = Depends(get_db),
     demo_session: DemoSession = Depends(get_current_session),
 ):
+    """Add a catalog SKU after checking its active state and available inventory."""
     require_allowed_origin(request)
     variant = db.scalar(
         select(ProductVariant)
@@ -320,6 +358,7 @@ def set_cart_item_quantity(
     db: Session = Depends(get_db),
     demo_session: DemoSession = Depends(get_current_session),
 ):
+    """Replace a cart item's quantity after validating its SKU and inventory."""
     require_allowed_origin(request)
     if payload.sku != sku:
         raise HTTPException(status_code=422, detail="SKU trên URL và nội dung yêu cầu không khớp.")
@@ -350,6 +389,7 @@ def delete_cart_item(
     db: Session = Depends(get_db),
     demo_session: DemoSession = Depends(get_current_session),
 ):
+    """Delete one SKU only from the authenticated session's cart."""
     require_allowed_origin(request)
     cart = db.scalar(select(Cart).where(Cart.session_id == demo_session.id))
     cart_item = db.scalar(
@@ -369,6 +409,11 @@ def checkout(
     db: Session = Depends(get_db),
     demo_session: DemoSession = Depends(get_current_session),
 ):
+    """Create a pending order using server-owned prices and the caller's cart.
+
+    Checkout rechecks inventory, snapshots catalog values, writes an audit record,
+    and clears the cart. It does not collect payment or reserve/decrement stock.
+    """
     require_allowed_origin(request)
     cart = db.scalar(select(Cart).where(Cart.session_id == demo_session.id))
     if cart is None:
@@ -437,6 +482,7 @@ def list_orders(
     db: Session = Depends(get_db),
     demo_session: DemoSession = Depends(get_current_session),
 ):
+    """List only orders owned by the authenticated demo session."""
     orders = db.scalars(
         select(Order)
         .where(Order.session_id == demo_session.id)
@@ -452,6 +498,7 @@ def get_order(
     db: Session = Depends(get_db),
     demo_session: DemoSession = Depends(get_current_session),
 ):
+    """Fetch an order only when its owner is the authenticated demo session."""
     order = db.scalar(
         select(Order)
         .where(Order.id == order_id, Order.session_id == demo_session.id)
@@ -467,8 +514,16 @@ async def chat_message(
     payload: ChatMessageWrite, request: Request,
     db: Session = Depends(get_db), demo_session: DemoSession = Depends(get_current_session),
 ):
+    """Route a chat turn through extraction, catalog checks, and controlled actions.
+
+    The LLM only classifies intent and extracts candidate fields. The backend then
+    checks idempotency, rate limits, catalog matches, stock, required fields, order
+    ownership, and allowed order state. Only deterministic checks authorize writes.
+    Chat logs keep operational metadata and the response, not the raw user message.
+    """
     require_allowed_origin(request)
-    # Idempotency protects client retries from duplicating orders.
+    # Replay the saved response for a repeated key so a browser retry cannot create
+    # a duplicate order or repeat another chat side effect.
     previous = db.scalar(select(ChatLog).where(
         ChatLog.session_id == demo_session.id,
         ChatLog.client_message_id == payload.client_message_id,
@@ -486,8 +541,57 @@ async def chat_message(
         for session_id, (seen_window, _) in list(_chat_rate_windows.items()):
             if seen_window < window - 1:
                 _chat_rate_windows.pop(session_id, None)
+    user_role = request.headers.get("x-user-role", "customer").lower()
+    if user_role not in {"customer", "staff", "admin"}:
+        user_role = "customer"
+
+    route_decision = route_message(payload.message)
+
+    if route_decision.primary_route == "knowledge_query":
+        rag_index = get_active_rag_index()
+        retrieved = rag_index.retrieve(payload.message, user_role=user_role)
+        rag_res = generate_grounded_answer(payload.message, retrieved, user_role=user_role)
+        answer = {
+            "route": "knowledge_query",
+            "status": rag_res["status"],
+            "message": rag_res["answer"],
+            "citations": rag_res["citations"],
+            "missing_information": rag_res.get("missing_information", "")
+        }
+        db.add(ChatLog(session_id=demo_session.id, client_message_id=payload.client_message_id,
+            request_id=request.state.request_id, model_id="rag-ngram-v1", prompt_version=PROMPT_VERSION,
+            intent="knowledge_query", validation_status="valid", route="knowledge_query",
+            latency_ms=5, retry_count=0, response_payload=answer, created_at=datetime.now(timezone.utc)))
+        db.commit()
+        return answer
+
+    if route_decision.primary_route == "safety_adversarial" and not route_decision.order_query:
+        answer = {
+            "route": "handoff",
+            "status": "access_denied",
+            "message": "Yêu cầu bị từ chối: Hệ thống không chấp nhận các lệnh can thiệp bảo mật, xóa dữ liệu hoặc truy cập nội bộ.",
+            "citations": []
+        }
+        db.add(ChatLog(session_id=demo_session.id, client_message_id=payload.client_message_id,
+            request_id=request.state.request_id, model_id="rag-v1", prompt_version=PROMPT_VERSION,
+            intent="safety_adversarial", validation_status="rejected", route="handoff",
+            latency_ms=1, retry_count=0, response_payload=answer, created_at=datetime.now(timezone.utc)))
+        db.commit()
+        return answer
+
+    rag_mixed_res = None
+    extract_target = payload.message
+    if route_decision.primary_route == "mixed":
+        k_query = route_decision.knowledge_query or payload.message
+        rag_index = get_active_rag_index()
+        retrieved = rag_index.retrieve(k_query, user_role=user_role)
+        rag_mixed_res = generate_grounded_answer(k_query, retrieved, user_role=user_role)
+        extract_target = route_decision.order_query or payload.message
+
     try:
-        result = await extract(payload.message)
+        # Provider failures become a safe response and metadata-only log. No partial
+        # or malformed model output is allowed to reach business handling.
+        result = await extract(extract_target)
     except ProviderError as exc:
         answer = {"route": "error", "message": "Trợ lý đang gặp sự cố kết nối. Bạn thử lại sau hoặc tiếp tục đặt hàng bằng giỏ hàng nhé."}
         db.add(ChatLog(session_id=demo_session.id, client_message_id=payload.client_message_id,
@@ -498,12 +602,15 @@ async def chat_message(
         db.commit()
         return answer
 
+    # Schema validation checks structure, not factual correctness or authorization.
+    # Treat every extracted field as untrusted until checked against backend state.
     data = result.data
     if data.intent not in {"create_order", "check_stock", "check_price", "update_order", "unknown_or_handoff"}:
         data.intent = "unknown_or_handoff"
     answer: dict = {"route": "handoff", "message": "Mình chưa xác định được yêu cầu. Bạn có thể hỏi giá, kiểm tra tồn kho, đặt hàng hoặc yêu cầu nhân viên hỗ trợ."}
     order_id = None
-    # Resolve product exclusively against active database catalog.
+    # Resolve candidates exclusively against active SQLite catalog records. Model
+    # output never supplies an authoritative SKU, price, stock value, or order state.
     products = db.scalars(select(Product).where(Product.active.is_(True)).options(
         selectinload(Product.variants).selectinload(ProductVariant.inventory))).all()
     query = norm(data.requested_product or payload.message)
@@ -517,15 +624,15 @@ async def chat_message(
             words = set(query.split())
             if any(len(words & set(name.split())) >= 2 for name in normalized_names):
                 candidates.append(product)
-    # A query without an explicit product can continue a pending order collection.
+    # Load only this session's short-lived structured state and discard expired data.
     state = db.scalar(select(ChatState).where(ChatState.session_id == demo_session.id))
     now = int(time.time())
     pending = dict(state.pending_order or {}) if state and state.expires_at > now else {}
     if state and state.expires_at <= now:
         db.delete(state); state = None
 
-    # Continue only the pending order owned by this session; keep the structured
-    # state short lived and never persist the raw chat message.
+    # Continue collecting only this owner's order, for at most 30 minutes. Store
+    # structured fields only; the raw customer message is never persisted.
     if pending and data.intent in {"unknown_or_handoff", "create_order"} and not candidates:
         pending["name"] = data.name or pending.get("name")
         pending["phone"] = data.phone or pending.get("phone")
@@ -542,6 +649,8 @@ async def chat_message(
             state.expires_at = now + 1800
 
     if data.intent in ("check_stock", "check_price", "create_order"):
+        # Ambiguous or missing catalog matches trigger clarification rather than
+        # allowing the model to choose a product arbitrarily.
         if len(candidates) != 1:
             answer = {"route":"needs_information", "message":"Bạn muốn hỏi về sản phẩm nào? Hãy gửi tên sản phẩm để mình tra cứu chính xác."}
         else:
@@ -558,6 +667,8 @@ async def chat_message(
             if pending.get("sku"):
                 mentioned = [v for v in variants if v.sku == pending.get("sku")]
             variant = mentioned[0] if len(mentioned) == 1 else (variants[0] if len(variants) == 1 else None)
+            # Price and availability answers are assembled from database rows,
+            # never trusted from generated model text.
             if data.intent == "check_price":
                 prices = [f"{v.unit_price:,}₫" for v in ( [variant] if variant else variants )]
                 answer = {"route":"answer", "message": f"{product.name} có giá {', '.join(prices)}" + ("." if variant else " tùy phân loại. Bạn muốn xem phân loại nào?")}
@@ -570,6 +681,8 @@ async def chat_message(
                     answer = {"route":"needs_information", "message":f"{product.name} có nhiều phân loại. Bạn muốn chọn: " + "; ".join(", ".join(v.attributes.values()) for v in variants) + "?"}
                 else:
                     pending = {**pending, "sku":variant.sku,"quantity":data.quantity,"name":data.name or pending.get("name"),"phone":data.phone or pending.get("phone"),"address":data.address or pending.get("address")}
+                    # Never guess missing quantity or recipient fields. Persist only
+                    # structured, session-scoped pending state with a short TTL.
                     if data.quantity is None:
                         missing = ["số lượng"] + [label for key,label in (("name","tên người nhận"),("phone","số điện thoại demo"),("address","địa chỉ giao hàng demo")) if not pending.get(key)]
                         if state is None:
@@ -591,6 +704,8 @@ async def chat_message(
                                     state.pending_order=pending; state.expires_at=now+1800
                                 answer = {"route":"needs_information", "message":f"Mình đã ghi nhận {qty} × {product.name} ({', '.join(variant.attributes.values())}). Để tạo đơn nháp, bạn vui lòng gửi {', '.join(missing)}. Chỉ dùng thông tin giả cho demo nhé."}
                             else:
+                                # Create a draft only after SKU, quantity, current
+                                # stock, and every required delivery field pass checks.
                                 order = Order(id=uuid4().hex, session_id=demo_session.id,status="pending_confirmation",recipient_name=pending["name"],phone_number=pending["phone"],delivery_address=pending["address"],total_amount=qty*variant.unit_price,created_at=datetime.now(timezone.utc))
                                 order.items.append(OrderItem(sku=variant.sku,product_name_snapshot=product.name,variant_snapshot=variant.attributes or {},quantity=qty,unit_price_snapshot=variant.unit_price))
                                 db.add(order); db.flush(); order_id=order.id
@@ -598,6 +713,8 @@ async def chat_message(
                                 if state: db.delete(state)
                                 answer={"route":"pending_confirmation","order_id":order.id,"message":f"Đã tạo đơn nháp #{order.id[:10].upper()} cho {qty} × {product.name}, tổng {order.total_amount:,}₫. Đơn đang chờ xác nhận; chưa thanh toán hoặc trừ kho."}
     elif data.intent == "update_order":
+        # Update only this owner's pending, single-item draft. A supplied reference
+        # must resolve to one order; inventory is checked again before the write.
         orders = db.scalars(select(Order).where(Order.session_id==demo_session.id,Order.status=="pending_confirmation").options(selectinload(Order.items))).all()
         ref=(data.order_reference or "").lower()
         matched=[o for o in orders if not ref or o.id.lower().startswith(ref)]
@@ -616,6 +733,14 @@ async def chat_message(
     elif data.intent == "unknown_or_handoff" or data.requires_human_review:
         answer={"route":"handoff","message":"Yêu cầu này cần nhân viên hỗ trợ. Đây là bản demo nên mình chưa gửi tin cho nhân viên thật; bạn có thể tiếp tục hỏi về giá, tồn kho hoặc đơn nháp."}
 
+    if rag_mixed_res:
+        answer["route"] = "mixed"
+        answer["status"] = rag_mixed_res["status"]
+        answer["citations"] = rag_mixed_res["citations"]
+        answer["message"] = f"{rag_mixed_res['answer']}\n\n[Thao tác đơn hàng]: {answer['message']}"
+
+    # Save operational metadata and the response only. Exclude raw user messages
+    # and extracted delivery details from the chat log.
     db.add(ChatLog(session_id=demo_session.id,client_message_id=payload.client_message_id,
         request_id=request.state.request_id,model_id=result.model_id,prompt_version=PROMPT_VERSION,
         intent=data.intent,validation_status=result.validation_status,route=answer["route"],
@@ -623,3 +748,44 @@ async def chat_message(
         retry_count=result.retry_count,response_payload=answer,created_at=datetime.now(timezone.utc)))
     db.commit()
     return answer
+
+
+@app.get("/api/v1/rag/status")
+def get_rag_status():
+    index = get_active_rag_index()
+    return {
+        "active_version": index.manifest_meta.get("corpus_version", "1.0"),
+        "total_documents": index.manifest_meta.get("total_documents", 12),
+        "total_chunks": len(index.chunks),
+        "embedding_model": index.manifest_meta.get("embedding_model", "deterministic-ngram-tfidf-v1"),
+        "created_at": index.manifest_meta.get("created_at"),
+    }
+
+
+@app.post("/api/v1/rag/reindex")
+def trigger_rag_reindex(request: Request, version: str = Query("1.1"), db: Session = Depends(get_db)):
+    global _active_rag_index
+    user_role = request.headers.get("x-user-role", "customer").lower()
+    if user_role != "admin":
+        raise HTTPException(status_code=403, detail="Chỉ quản trị viên (Admin) mới có quyền re-index.")
+    
+    target_bundle = REPO_ROOT / "artifacts" / ("index_bundle_v1_1.json" if version == "1.1" else "index_bundle.json")
+    if not target_bundle.exists():
+        from src.indexer import run_indexing
+        if version == "1.1":
+            run_indexing(corpus_dir=REPO_ROOT / "data" / "corpus_v1_1", manifest_path=REPO_ROOT / "data_config" / "corpus_manifest_v1_1.json", output_bundle=str(target_bundle), version="1.1")
+        else:
+            run_indexing(output_bundle=str(target_bundle), version="1.0")
+    
+    _active_rag_index = RAGIndex.load(target_bundle)
+    req_id = getattr(request.state, "request_id", uuid4().hex)
+    db.add(AuditLog(request_id=req_id, action=f"rag_reindex_{version}",
+        actor_session_id=None, details={"version": version, "total_chunks": len(_active_rag_index.chunks)},
+        created_at=datetime.now(timezone.utc)))
+    db.commit()
+    return {
+        "status": "reindexed",
+        "active_version": version,
+        "total_chunks": len(_active_rag_index.chunks),
+        "message": f"Chỉ mục RAG phiên bản {version} đã được kích hoạt thành công."
+    }

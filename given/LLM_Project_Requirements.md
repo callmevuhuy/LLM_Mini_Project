@@ -1,5 +1,7 @@
 # Mini Project - AI Live Commerce Order Assistant
 
+> Archived original requirements for the predecessor LLM & Prompt Engineering project. RAG requirements are in [`Project_RAG_Requirements.pdf`](Project_RAG_Requirements.pdf).
+
 ## 1. Thông tin chung
 
 | Thuộc tính      | Nội dung                                                                                                |

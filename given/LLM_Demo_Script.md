@@ -1,4 +1,6 @@
-# Group 7 — Demo script (6–7 minutes)
+# Group 7 — Inherited LLM demo script (6–7 minutes)
+
+> This runbook covers the predecessor LLM application, not the required RAG demo.
 
 Use synthetic customer details only. Ollama must be running and `qwen3.5:2b-q4_K_M` available. A FakeLLM run is a stable fallback if the local model is unavailable.
 
@@ -35,7 +37,7 @@ Open `http://127.0.0.1:5173`. Keep the host as `127.0.0.1` so the demo session c
 | 2:30–3:30 | Clear order | Ask “Chốt 2 Áo thun basic cotton màu Xanh size M, tên là Demo Buyer, số điện thoại 0901234567, địa chỉ giao hàng 123 Demo Street, Quận 7.” The assistant summarizes a draft as pending confirmation. Do not use real contact information. |
 | 3:30–4:15 | Clarification and inventory | Ask “Mình muốn đặt Áo thun basic cotton màu Xanh size M.” The assistant asks for quantity and contact details. Then show a catalog variant that is unavailable or a quantity above stock; no invalid order should be created. |
 | 4:15–5:00 | Injection and handoff | Send an instruction to reveal a key/delete orders alongside a valid product request. Show that the assistant does not disclose secrets or delete data. Ask to cancel an unspecified order; it should hand off rather than mutate an order. |
-| 5:00–6:00 | API/security evidence | Show `/docs` and explain that cross-session order reads return 404 and spoofed checkout price/status fields return 422. Share `docs/evaluation_results.md` and the two JSON reports. |
+| 5:00–6:00 | API/security evidence | Show `/docs` and explain that cross-session order reads return 404 and spoofed checkout price/status fields return 422. Share `LLM_Evaluation_Results.md` and the two JSON reports. |
 | 6:00–6:45 | Architecture and limitations | Explain LLM extraction vs server-side validation, why no fine-tuning is needed for this small MVP, and limits: mock inventory, anonymous demo session, one-item chat order, no payment or real staff messaging. |
 
 ## Suggested Q&A points

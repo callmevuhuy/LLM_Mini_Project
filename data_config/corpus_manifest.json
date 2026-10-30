@@ -1,0 +1,110 @@
+[
+  {
+    "doc_id": "CAT-TSHIRT-01",
+    "filename": "CAT-TSHIRT-01.md",
+    "title": "Áo thun basic cotton - Thông số và Hướng dẫn",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Catalog Team",
+    "category": "catalog"
+  },
+  {
+    "doc_id": "CAT-BOTTLE-01",
+    "filename": "CAT-BOTTLE-01.md",
+    "title": "Bình giữ nhiệt Everyday - Thông số và Hướng dẫn",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Catalog Team",
+    "category": "catalog"
+  },
+  {
+    "doc_id": "CAT-COFFEE-01",
+    "filename": "CAT-COFFEE-01.md",
+    "title": "Cà phê rang xay Đà Lạt - Nguồn gốc và Quy cách",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Catalog Team",
+    "category": "catalog"
+  },
+  {
+    "doc_id": "CAT-SIZING-01",
+    "filename": "CAT-SIZING-01.md",
+    "title": "Hướng dẫn chọn Size và Bảng kích thước",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Catalog Team",
+    "category": "catalog"
+  },
+  {
+    "doc_id": "POL-RETURN-01",
+    "filename": "POL-RETURN-01.md",
+    "title": "Chính sách Đổi trả và Hoàn tiền",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Policy Team",
+    "category": "policy"
+  },
+  {
+    "doc_id": "POL-WARRANTY-01",
+    "filename": "POL-WARRANTY-01.md",
+    "title": "Chính sách Bảo hành Sản phẩm",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Policy Team",
+    "category": "policy"
+  },
+  {
+    "doc_id": "POL-SHIPPING-01",
+    "filename": "POL-SHIPPING-01.md",
+    "title": "Chính sách Vận chuyển và Đồng kiểm",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Policy Team",
+    "category": "policy"
+  },
+  {
+    "doc_id": "FAQ-ORDER-01",
+    "filename": "FAQ-ORDER-01.md",
+    "title": "FAQ Đặt hàng, Hủy đơn và Xử lý sự cố",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Support Team",
+    "category": "faq"
+  },
+  {
+    "doc_id": "FAQ-CARE-01",
+    "filename": "FAQ-CARE-01.md",
+    "title": "FAQ Vệ sinh Bình giữ nhiệt và Pha Cà phê",
+    "version": "1.0",
+    "access_level": "public",
+    "author": "Support Team",
+    "category": "faq"
+  },
+  {
+    "doc_id": "INT-STAFF-SOP-01",
+    "filename": "INT-STAFF-SOP-01.md",
+    "title": "SOP Tiếp nhận và Xử lý Khiếu nại Khách hàng",
+    "version": "1.0",
+    "access_level": "staff",
+    "author": "Operations Team",
+    "category": "internal"
+  },
+  {
+    "doc_id": "INT-DISCOUNT-01",
+    "filename": "INT-DISCOUNT-01.md",
+    "title": "Quy định Chiết khấu Nội bộ và Mã Ưu đãi Nhân viên",
+    "version": "1.0",
+    "access_level": "staff",
+    "author": "HR & Finance Team",
+    "category": "internal"
+  },
+  {
+    "doc_id": "INT-ADMIN-OPS-01",
+    "filename": "INT-ADMIN-OPS-01.md",
+    "title": "Quy trình Quản trị Vận hành Kho và Re-index RAG",
+    "version": "1.0",
+    "access_level": "admin",
+    "author": "System Admin",
+    "category": "admin"
+  }
+]

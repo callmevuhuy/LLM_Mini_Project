@@ -9,8 +9,8 @@ import time
 import unicodedata
 from dataclasses import dataclass
 
-import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+import httpx                                                   #type ignore
+from pydantic import BaseModel, ConfigDict, Field, ValidationError      #type ignore
 
 PROMPT_VERSION = "order-extraction-v2"
 INTENTS = {"create_order", "check_stock", "check_price", "update_order", "unknown_or_handoff"}
@@ -42,11 +42,13 @@ class LLMResult:
 
 class ProviderError(Exception):
     def __init__(self, error_type: str, retries: int = 0):
+        """Carry a safe provider failure category and retry count to the API layer."""
         self.error_type, self.retries = error_type, retries
         super().__init__(error_type)
 
 
 def norm(value: str) -> str:
+    """Normalize Vietnamese text for accent-insensitive rule and catalog matching."""
     value = value.lower().replace("đ", "d")
     return " ".join("".join(c for c in unicodedata.normalize("NFD", value) if unicodedata.category(c) != "Mn").split())
 
@@ -59,6 +61,7 @@ def explicit_quantity(text: str) -> int | None:
 
 
 def heuristic(text: str) -> Extraction:
+    """Extract a conservative intent and fields without calling an external model."""
     t = norm(text)
     if any(k in t for k in ("nhan vien", "gap nguoi", "ho tro truc tiep", "khieu nai")):
         intent = "unknown_or_handoff"
@@ -92,6 +95,11 @@ def heuristic(text: str) -> Extraction:
 
 
 async def extract(text: str) -> LLMResult:
+    """Return schema-validated intent data from FakeLLM or the configured Ollama model.
+
+    This adapter only interprets text. Its output is untrusted: the API layer must
+    resolve products, verify ownership and stock, and authorize every database write.
+    """
     provider = os.getenv("LLM_PROVIDER", "fake").lower()
     started = time.perf_counter()
     if provider == "fake":
@@ -102,6 +110,8 @@ async def extract(text: str) -> LLMResult:
     model = os.getenv("OLLAMA_MODEL", "").strip()
     if not model:
         raise ProviderError("missing_model")
+    # Keep the extraction contract narrow so the model cannot choose prices,
+    # inventory values, order states, database identifiers, or arbitrary actions.
     system = ("Extract fields from the Vietnamese shopping message. Return exactly one JSON object with ONLY these keys: "
               '{"intent":"create_order|check_stock|check_price|update_order|unknown_or_handoff",'
               '"requested_product":string|null,"variant":{"color":string,"size":string,"capacity":string,"weight":string,"grind":string}|null,'
@@ -114,6 +124,7 @@ async def extract(text: str) -> LLMResult:
     retries = 0
     for attempt in range(3):
         try:
+            # Each attempt has a bounded timeout; only transient provider failures retry.
             async with httpx.AsyncClient(timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))) as client:
                 response = await client.post(os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")+"/api/chat",
                     json={"model": model, "stream": False, "format": "json", "think": False,
@@ -125,6 +136,7 @@ async def extract(text: str) -> LLMResult:
             payload = response.json()
             raw = payload.get("message", {}).get("content", "")
             obj = json.loads(raw)
+            # Reject unexpected keys, malformed fields, and unsupported intent values.
             data = Extraction.model_validate(obj)
             if data.intent not in INTENTS:
                 raise ValueError("invalid intent")
@@ -133,6 +145,7 @@ async def extract(text: str) -> LLMResult:
             stated_quantity = explicit_quantity(text)
             if stated_quantity is not None:
                 data.quantity = stated_quantity
+            # Return parsed fields and provider metadata; never execute business actions here.
             return LLMResult(data, model, int((time.perf_counter()-started)*1000), retries,
                              payload.get("prompt_eval_count"), payload.get("eval_count"))
         except (httpx.TimeoutException, httpx.ConnectError):

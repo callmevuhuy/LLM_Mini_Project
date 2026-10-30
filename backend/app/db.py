@@ -18,6 +18,7 @@ engine = create_engine(
 
 @event.listens_for(engine, "connect")
 def enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+    """Enable SQLite foreign-key enforcement for each newly opened connection."""
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
@@ -31,6 +32,7 @@ class Base(DeclarativeBase):
 
 
 def get_db():
+    """Yield one request-scoped SQLAlchemy session and always close it afterward."""
     db = SessionLocal()
     try:
         yield db

@@ -1,8 +1,10 @@
-# Workflow — AI Live Commerce Order Assistant
+# Archived LLM Workflow — AI Live Commerce Order Assistant
+
+> Historical workflow for the predecessor LLM project. RAG planning is maintained separately in [`RAG_Workflow.md`](RAG_Workflow.md); current agent instructions are in repository-root [`AGENTS.md`](../AGENTS.md).
 
 ## 1. Mục tiêu
 
-Hướng dẫn agents/devs xây mini-project theo `given/Project_Requirements.md`: website marketplace demo để khách xem sản phẩm, tạo đơn nháp và chat tiếng Việt với trợ lý AI. Stack đã chốt: **FastAPI + SQLite**. Frontend dùng React + Vite và chỉ giao tiếp với backend API. Tài liệu đầu vào và ảnh tham khảo nằm trong `given/` để giữ source structure gọn.
+Hướng dẫn agents/devs xây mini-project theo `LLM_Project_Requirements.md`: website marketplace demo để khách xem sản phẩm, tạo đơn nháp và chat tiếng Việt với trợ lý AI. Stack đã chốt: **FastAPI + SQLite**. Frontend dùng React + Vite và chỉ giao tiếp với backend API. Đây là tài liệu lịch sử của project LLM; không nhầm với kế hoạch RAG hiện tại.
 
 Thứ tự ưu tiên: (1) website/API/database end-to-end, (2) authorization và business validation, (3) chat/LLM có kiểm soát, (4) evaluation, tài liệu và demo. Không làm thanh toán thật, tích hợp livestream/social, gửi tin nhắn thật hay fine-tuning trước khi hoàn thành MVP.
 
@@ -46,12 +48,11 @@ frontend/src/
   main.jsx
   styles.css
 data/seed_catalog.json
-docs/architecture.md
 given/
-  Project_Requirements.md
-  workflow.md
+  LLM_Project_Requirements.md
+  LLM_Workflow.md
   Shopee_Frontend_Demo,jpg
-README.md
+../README.md
 .env.example
 .gitignore
 ```
@@ -71,25 +72,25 @@ Tối thiểu các bảng/thực thể:
 - `order_items`: SKU, quantity, snapshot tên/variant/giá backend xác nhận.
 - `audit_logs`: request/order ID, actor đã ẩn danh, action, timestamp và metadata tối thiểu.
 
-Tạo ít nhất 10 SKU trên 3 nhóm sản phẩm. Dùng khóa chính/ngoại, unique SKU, quantity nguyên dương và transaction phù hợp. Seed phải có thể chạy lặp lại mà không nhân bản dữ liệu. README hoặc `docs/architecture.md` mô tả schema và cách khởi tạo.
+Tạo ít nhất 10 SKU trên 3 nhóm sản phẩm. Dùng khóa chính/ngoại, unique SKU, quantity nguyên dương và transaction phù hợp. Seed phải có thể chạy lặp lại mà không nhân bản dữ liệu. README hoặc `LLM_Architecture.md` mô tả schema và cách khởi tạo.
 
 ## 6. API tối thiểu
 
 Dùng prefix nhất quán, ví dụ `/api/v1`; mô tả request/response, quyền và lỗi trong README/OpenAPI.
 
-| Endpoint gợi ý | Công dụng | Ràng buộc |
-| --- | --- | --- |
-| `GET /products` | Danh sách, tìm kiếm/lọc cơ bản | Đọc từ DB |
-| `GET /products/{id}` | Chi tiết và variants | Đọc từ DB |
-| `POST /session`, `GET /session` | Tạo/khôi phục và đọc demo identity | Opaque HttpOnly cookie; không nhận owner từ body |
-| `GET /cart` | Xem giỏ của phiên | Server tính giá/subtotal từ catalog |
-| `POST /cart/items` | Thêm SKU/quantity | Kiểm tra catalog và availability |
-| `PATCH /cart/items/{sku}` | Đặt quantity | Kiểm tra tồn kho, không nhận giá |
-| `DELETE /cart/items/{sku}` | Xóa cart item | Chỉ cart của session hiện tại |
-| `POST /orders` | Checkout cart thành draft | Server tính snapshot giá/tổng, kiểm tồn, audit và xóa cart |
-| `GET /orders` | Liệt kê đơn của phiên | Ownership lọc tại backend |
-| `GET /orders/{id}` | Xem đơn | Chỉ owner; đơn không thuộc quyền trả 404 |
-| `POST /chat/messages` | Xử lý chat | Rate limit hợp lý; LLM không ghi DB |
+| Endpoint gợi ý                    | Công dụng                              | Ràng buộc                                                       |
+| ----------------------------------- | ---------------------------------------- | ----------------------------------------------------------------- |
+| `GET /products`                   | Danh sách, tìm kiếm/lọc cơ bản     | Đọc từ DB                                                      |
+| `GET /products/{id}`              | Chi tiết và variants                   | Đọc từ DB                                                      |
+| `POST /session`, `GET /session` | Tạo/khôi phục và đọc demo identity | Opaque HttpOnly cookie; không nhận owner từ body               |
+| `GET /cart`                       | Xem giỏ của phiên                     | Server tính giá/subtotal từ catalog                            |
+| `POST /cart/items`                | Thêm SKU/quantity                       | Kiểm tra catalog và availability                                |
+| `PATCH /cart/items/{sku}`         | Đặt quantity                           | Kiểm tra tồn kho, không nhận giá                             |
+| `DELETE /cart/items/{sku}`        | Xóa cart item                           | Chỉ cart của session hiện tại                                 |
+| `POST /orders`                    | Checkout cart thành draft               | Server tính snapshot giá/tổng, kiểm tồn, audit và xóa cart |
+| `GET /orders`                     | Liệt kê đơn của phiên              | Ownership lọc tại backend                                       |
+| `GET /orders/{id}`                | Xem đơn                                | Chỉ owner; đơn không thuộc quyền trả 404                   |
+| `POST /chat/messages`             | Xử lý chat                             | Rate limit hợp lý; LLM không ghi DB                            |
 
 Có thể đổi route nhưng phải bao phủ catalog, đặt/xem/sửa đơn có kiểm soát và chat. Không tin `user_id`, role, giá, tổng tiền, inventory hoặc state do client gửi. Trả lỗi có cấu trúc, không lộ stack trace/SQL/secret.
 
@@ -184,15 +185,16 @@ Xây widget và chat endpoint; `FakeLLMClient`, prompt versioned, parser/schema 
 
 Hoàn tất tối thiểu 12 test cases đúng nhóm yêu cầu, rubric, ít nhất 2 failure analyses và revision notes. Tài liệu hóa setup, schema, API, mock mode, giới hạn và kịch bản demo 5–8 phút.
 
-**Trạng thái:** Hoàn tất. Có 14 case: 3 happy path, 4 missing/ambiguous (có multi-turn), 2 catalog/inventory, 2 lỗi provider/format được inject, 2 safety và 1 update. Runner dùng SQLite tạm và smoke toàn luồng 12 endpoint status từ session/catalog đến cart/checkout/order. Ngày 2026-10-20: FakeLLM 14/14, Ollama `qwen3.5:2b-q4_K_M` 14/14; cross-session order → 404, payload giả giá/tồn/trạng thái → 422 và số order không đổi. Frontend build thành công; trình duyệt hiển thị catalog, mở chat và hỏi giá API-grounded thành công. UX checkout qua trình duyệt và chấm phản hồi bởi người thật chưa được xác nhận trong lượt này. Chi tiết ở `docs/evaluation_results.md`, kịch bản demo 6–7 phút tại `docs/demo_script.md`, kết quả thô ở `eval/results_*.json`.
+**Trạng thái:** Hoàn tất tại project LLM. Có 14 case: 3 happy path, 4 missing/ambiguous (có multi-turn), 2 catalog/inventory, 2 lỗi provider/format được inject, 2 safety và 1 update. Runner dùng SQLite tạm và smoke toàn luồng 12 endpoint status từ session/catalog đến cart/checkout/order. Ngày 2026-10-20: FakeLLM 14/14, Ollama `qwen3.5:2b-q4_K_M` 14/14; cross-session order → 404, payload giả giá/tồn/trạng thái → 422 và số order không đổi. Frontend build thành công; trình duyệt hiển thị catalog, mở chat và hỏi giá API-grounded thành công. UX checkout qua trình duyệt và chấm phản hồi bởi người thật chưa được xác nhận trong lượt này. Chi tiết ở `LLM_Evaluation_Results.md`, kịch bản demo 6–7 phút tại `LLM_Demo_Script.md`, kết quả thô ở `../eval/results_*.json`.
 
 ## 11. Hướng dẫn cho agents/devs
 
-- Trước khi sửa, đọc `given/Project_Requirements.md`, `given/workflow.md`, README và cấu trúc hiện tại.
+- Trước khi sửa project LLM, đọc `LLM_Project_Requirements.md`, `LLM_Workflow.md`, README và cấu trúc hiện tại.
 - Thống nhất contract API/schema trước khi code; cập nhật tài liệu cùng khi contract đổi.
 - Không tự đổi stack, trust boundary, intent hay order state mà không ghi lý do và cập nhật tài liệu.
 - Giữ routes mỏng; business rules ở services/backend, prompt chỉ hỗ trợ extraction.
 - Không thêm secret, PII thật, dữ liệu thương mại thật hoặc tài sản thương hiệu chưa được cấp quyền.
+- Mọi function trong backend cần docstring tiếng Anh ngắn gọn; riêng chat/LLM phải ghi rõ trust boundary, validation, side effects và dữ liệu được lưu.
 - Khi bàn giao, nêu file đã sửa, luồng đã làm, cách chạy và phần còn thiếu. Chỉ khẳng định kiểm chứng nếu đã thực sự chạy kiểm chứng.
 - Tạo/running tests khi được yêu cầu hoặc khi tiêu chí hoàn tất của phase phụ thuộc vào kết quả đó; ghi lại lệnh và kết quả.
 
@@ -207,9 +209,10 @@ Hoàn tất tối thiểu 12 test cases đúng nhóm yêu cầu, rubric, ít nh�
 - [x] Demo session, ownership checks, audit log.
 - [x] Prompt có version, delimiter, untrusted-input rule và JSON contract.
 - [x] Fake mode chạy không cần secret; `.env.example`/`.gitignore` có placeholder cấu hình.
-- [x] Có >=12 evaluation cases, rubric và >=2 failure analyses (`eval/`, `docs/evaluation_results.md`).
+- [x] Có >=12 evaluation cases, rubric và >=2 failure analyses (`../eval/`, `LLM_Evaluation_Results.md`).
 - [x] README/architecture/workflow, evaluation results và demo script đã cập nhật sau Phase D.
-
+- [x] Các function backend có docstring tiếng Anh; chat/LLM flow có giải thích validation/trust boundary.
+- [x] Full verification ngày 2026-10-22: FakeLLM 14/14, Ollama 14/14, API/security smoke, npm clean install/build và browser checkout.
 
 ## 13. Nhật ký tiến độ
 
@@ -217,4 +220,5 @@ Hoàn tất tối thiểu 12 test cases đúng nhóm yêu cầu, rubric, ít nh�
 - **2026-10-20 — Phase B:** thêm demo session cookie HttpOnly, cart API/SQLite, chọn variant, checkout draft, order reads có ownership, snapshot giá và audit log; cập nhật README, architecture và checklist này.
 - **2026-10-20 — Phase C:** thêm FakeLLM/Ollama extraction adapter, chat API idempotent theo phiên, kiểm chứng product/variant/giá/tồn bằng SQLite, tạo/sửa draft giới hạn, pending info TTL, log metadata không raw message và chat widget; cập nhật README, architecture và workflow. Phase D còn lại.
 - **2026-10-20 — Phase D:** thêm 14 case và runner SQLite cô lập, rubric 5 chiều, báo cáo kết quả, failure analyses, demo script; kết quả Fake 14/14, Ollama 14/14. Evaluation phát hiện quantity `13` có thể bị Qwen đọc thành `1`; thêm reconciliation deterministic cho quantity được nêu rõ, cập nhật prompt/workflow/README/architecture.
-- **2026-10-20 — Toàn diện sau Phase D:** README tách hướng chạy FakeLLM/Ollama; evaluator mở rộng smoke session/catalog/cart/checkout/order và probe spoof cả price/stock/status; chạy lại cả hai provider, frontend production build và browser smoke storefront/chat. Tạo `Project_Report.MD` với ma trận tiêu chí đạt/partial và giới hạn chưa kiểm chứng.
+- **2026-10-21 — Toàn diện sau Phase D:** README tách hướng chạy FakeLLM/Ollama; evaluator mở rộng smoke session/catalog/cart/checkout/order và probe spoof cả price/stock/status; chạy lại cả hai provider, frontend production build và browser smoke storefront/chat. Tạo `LLM_Project_Report.md` với ma trận tiêu chí đạt/partial và giới hạn chưa kiểm chứng.
+- **2026-10-22 — A–Z và backend documentation:** thêm English docstring cho toàn bộ function backend và giải thích rõ từng trust boundary của chat/LLM. Rà soát dependency/setup; FakeLLM và Ollama đều 14/14, API/security probes, `npm ci`, Vite production build và browser test catalog → chat price → cart → checkout đều đạt. Cập nhật README, architecture, evaluation results và `LLM_Project_Report.md`.

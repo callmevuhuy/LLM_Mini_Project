@@ -1,5 +1,6 @@
 from datetime import datetime
 import re
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
@@ -70,6 +71,7 @@ class CheckoutRequest(StrictRequest):
     @field_validator("recipient_name", "phone_number", "delivery_address")
     @classmethod
     def strip_required_text(cls, value: str) -> str:
+        """Trim required checkout values and reject strings containing only whitespace."""
         value = value.strip()
         if not value:
             raise ValueError("Trường này không được để trống.")
@@ -78,6 +80,7 @@ class CheckoutRequest(StrictRequest):
     @field_validator("phone_number")
     @classmethod
     def validate_demo_phone(cls, value: str) -> str:
+        """Accept a demo phone format with at least eight numeric digits."""
         if not re.fullmatch(r"[0-9+()\-\s]{8,30}", value) or sum(char.isdigit() for char in value) < 8:
             raise ValueError("Số điện thoại không đúng định dạng.")
         return value
@@ -111,4 +114,7 @@ class ChatMessageWrite(StrictRequest):
 class ChatMessageRead(BaseModel):
     route: str
     message: str
+    status: str | None = None
+    citations: list[dict[str, Any]] | None = None
+    missing_information: str | None = None
     order_id: str | None = None

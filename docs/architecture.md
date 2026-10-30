@@ -1,70 +1,89 @@
-# Architecture — Phase A, B, C and D
+# Tài liệu Kiến trúc Hệ thống RAG (RAG System Architecture)
 
-## Components
+## 1. Bối cảnh và Ranh giới Kế thừa
+
+Dự án RAG này là phần mở rộng trực tiếp từ **AI Live Commerce Order Assistant** (môn LLM & Prompting):
+- **Cơ sở dữ liệu Vận hành (Operational DB - SQLite):** Giữ quyền kiểm soát duy nhất (Authoritative Source of Truth) đối với danh mục SKU sản phẩm, giá bán hiện hành, số lượng tồn kho theo thời gian thực, phiên mua sắm và trạng thái đơn hàng.
+- **RAG Knowledge Base:** Đóng vai trò tra cứu kiến thức phi cấu trúc (thông số kỹ thuật, chất liệu, xuất xứ, chính sách đổi trả, bảo hành, vận chuyển, quy trình nội bộ). **RAG tuyệt đối không tự ý thực hiện ghi/sửa đơn hàng hoặc tự phán đoán giá/tồn kho.**
+- **Frontend React/Vite:** Giao diện người dùng duy nhất, giao tiếp với FastAPI qua REST API chuẩn mực (`/api/v1`), không bao giờ kết nối trực tiếp vào SQLite.
+
+---
+
+## 2. Luồng Xử lý Yêu cầu (Target Request Flow & Router)
 
 ```text
-React/Vite storefront (127.0.0.1:5173)
-  -> public catalog endpoints
-  -> demo session cookie (HttpOnly, SameSite=Lax)
-  -> cart and checkout endpoints
-FastAPI (127.0.0.1:8000)
-  -> request validation + session ownership
-  -> SQLAlchemy models/routes and chat orchestration
-  -> FakeLLM default / optional Ollama extraction adapter
-  -> catalog + inventory + order business rules
-  -> SQLite (backend/data/shop.db)
+[Người dùng gửi tin nhắn qua Chat UI]
+                │
+                ▼ (Kèm X-User-Role: customer | staff | admin)
+┌───────────────────────────────────────────────────────────────┐
+│ FastAPI Gateway: Xác thực Session & Server-side Authorization  │
+└───────────────────────────────┬───────────────────────────────┘
+                                │
+                                ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Intent Router (src/router.py)                                 │
+│  ├── 1. Order Flow (cũ)   ──> LLM Intent & DB Validation      │
+│  ├── 2. Knowledge Flow    ──> RAG Pipeline                    │
+│  │                              ├── Pre-filtering theo Role   │
+│  │                              ├── Vector Similarity Search  │
+│  │                              └── Grounded Answer + Cites   │
+│  ├── 3. Mixed Query       ──> Tách Knowledge + Action an toàn│
+│  └── 4. Adversarial/Risk  ──> Chặn an toàn / Handoff          │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-Frontend does not read seed files or connect to SQLite. Product listing/detail, cart, order and chat data are served through API. Chat sends only the current message and an idempotency UUID; it does not send owner, SKU, price, stock, or order state.
+### Các loại định tuyến chính:
+1. **`order_action` (Thao tác đơn hàng / Tồn kho / Giá):**
+   * Chuyển thẳng về pipeline trích xuất LLM và kiểm tra nghiệp vụ backend kế thừa.
+   * Tạo đơn nháp chỉ khi đủ thông tin người nhận, SKU hợp lệ và còn tồn kho.
+2. **`knowledge_query` (Tra cứu kiến thức):**
+   * Lọc quyền trước retrieval (`access_level <= user_role`).
+   * Trả về câu trả lời có trích dẫn `citations` chỉ rõ `chunk_id`, `doc_id`, `version`.
+   * Từ chối trả lời (`insufficient_evidence`) nếu không có tài liệu hỗ trợ.
+   * Từ chối truy cập (`access_denied`) nếu câu hỏi thuộc dữ liệu nội bộ và người dùng là khách hàng.
+3. **`mixed` (Yêu cầu hỗn hợp):**
+   * Tách câu hỏi kiến thức để gọi RAG trả lời có căn cứ.
+   * Tách yêu cầu đơn hàng chuyển sang backend validation độc lập.
+   * Trả về kết quả ghép đôi: phần thông tin có trích dẫn, phần đơn hàng hiển thị trạng thái xử lý rõ ràng.
+4. **`safety_adversarial` / `handoff`:**
+   * Phát hiện các câu lệnh cố tình phá rào (prompt injection, đòi API key, xóa đơn hàng), chặn ngay lập tức và đưa ra cảnh báo an toàn.
 
-## Data model
+---
 
-- `products`: name, category, description, image URL, aliases, active flag.
-- `product_variants`: unique SKU, JSON variant attributes, unit price/currency, product foreign key.
-- `inventory`: available mock quantity, unique foreign key to variant.
-- `demo_sessions`: SHA-256 hash of an opaque random session token, creation time and expiry. Raw token is held only in an HttpOnly cookie.
-- `carts` / `cart_items`: one cart per session; cart lines store SKU and integer quantity. Prices are always read from the current catalog.
-- `orders`: UUID-derived unguessable identifier, owner session, `pending_confirmation` state, recipient fields, server-calculated total and creation time.
-- `order_items`: SKU and snapshots of product name, variant attributes, quantity and backend-confirmed unit price.
-- `audit_logs`: request ID, order ID, actor session ID, action, non-PII metadata and timestamp.
-- `chat_states`: one short-lived (30-minute) structured pending order per session, containing only SKU/quantity and contact fields needed to finish that draft.
-- `chat_logs`: idempotency key, request/session IDs, provider/prompt metadata, validated intent/route, latency/token/retry/error metadata and response cache. Raw user messages and provider secrets are not stored.
+## 3. Kiến trúc Ingestion, Deterministic Chunking & Index Bundle
 
-The schema is initialized with SQLAlchemy `create_all` at app startup. The seed file contains 3 products and 12 unique variants. Existing SQLite files get new tables on next startup; there is not yet a migration framework for evolving columns.
+1. **Manifest-Driven Ingestion:**
+   * Quản trị viên quản lý danh mục tài liệu qua `data_config/corpus_manifest.json`.
+   * Kiểm tra nghiêm ngặt: định dạng file, mã hóa UTF-8, không rỗng, ID không trùng lặp, đầy đủ metadata phân quyền (`public`, `staff`, `admin`).
+2. **Deterministic Chunking:**
+   * Cắt đoạn văn bản theo cấu trúc tiêu đề section markdown (`## `).
+   * Tạo định danh chunk cố định dạng `{doc_id}#c{index:02d}` (ví dụ: `POL-RETURN-01#c01`).
+3. **Reproducible Local Embedder:**
+   * Sử dụng thuật toán vector hóa subword char-gram + word TF-IDF kết hợp chuẩn hóa L2 norm (DIM: 1024).
+   * 100% tái lập (deterministic), chạy offline siêu tốc, không cần kết nối internet hay GPU.
+4. **Index Bundle:**
+   * Đóng gói toàn bộ chỉ mục thành tệp bundle nguyên tử (`artifacts/index_bundle.json`).
+   * Kiểm tra tính toàn vẹn (Integrity check): Đảm bảo số lượng vectors luôn khớp 100% với danh sách chunks trước khi cho phép phục vụ truy vấn.
 
-## Session and browser boundary
+---
 
-`POST /api/v1/session` creates or resumes a seven-day demo session. Only the SHA-256 token digest is stored in SQLite. The raw random token is set as `group7_demo_session` with `HttpOnly`, `SameSite=Lax`, root path and `Secure` controlled by `COOKIE_SECURE` (false for local HTTP, true for HTTPS). The client never supplies a session/user ID.
+## 4. Mô hình Phân quyền & Ranh giới Bảo mật (Trust Boundaries)
 
-Session-protected cart/order routes derive their owner from the cookie. A request for an order owned by another session returns 404. Write routes reject a present Origin header outside the two local Vite origins. This is a demo boundary; deployment beyond localhost requires HTTPS, rate limiting and a production-grade CSRF/auth setup.
+* **Phân cấp 3 vai trò:**
+  * `customer`: Chỉ được phép truy xuất các tài liệu có `access_level == 'public'` (Catalog, Chính sách đổi trả/bảo hành/vận chuyển, FAQ).
+  * `staff`: Được phép truy xuất thêm tài liệu nội bộ hỗ trợ khách hàng (`INT-STAFF-SOP-01`, `INT-DISCOUNT-01`).
+  * `admin`: Toàn quyền truy xuất, xem nhật ký kiểm toán và kích hoạt quy trình re-index / rollback.
+* **Pre-filtering bắt buộc:**
+  * Bộ lọc quyền được áp dụng trực tiếp tại bước lọc candidates trong vector space. Dữ liệu restricted của nhân viên **không bao giờ đi vào danh sách ứng viên, context prompt, bộ nhớ đệm (cache) hay trích dẫn (citations) của khách hàng**.
 
-## API and business rules
+---
 
-- Catalog GET routes return database-backed product data and variants.
-- Cart add/update validates SKU, positive integer quantity and availability. Cart prices/subtotal are calculated from catalog values; client-supplied price fields are not part of the request schemas.
-- Checkout accepts only recipient name, phone and delivery address. It loads the session cart, rechecks active products and stock, calculates the total from server-side prices, writes the order and item snapshots, writes an audit event and clears cart items in one DB commit.
-- New orders use `pending_confirmation`. Checkout does not take payment, reserve stock or decrement mock inventory. Availability is checked when adding/updating cart lines and again at checkout.
-- Audit details contain item count and total only; recipient PII is not duplicated into audit metadata.
-- Chat extraction uses FakeLLM rules by default or optional Ollama (`qwen3.5:2b-q4_K_M` validated locally). Model output is untrusted: intent is allowlisted and payload parsed by Pydantic; catalog mapping, stock, price, owner, order status and writes are always decided by backend rules. Prompt version is `order-extraction-v2`; Ollama uses JSON mode, `think=false`, temperature 0 and context 4096.
-- Chat price/stock answers come from active SQLite products. Create order checks active variant/quantity/availability and creates one-item `pending_confirmation` draft only with complete recipient details. Missing details are held in session-owned 30-minute pending state. Update is limited to an unambiguously selected one-item pending draft and a positive quantity; it rechecks stock and recalculates from DB price.
-- Chat message IDs are idempotent per session so a network retry returns the cached result. Chat logs keep metadata/response only; do not enable raw prompt or PII logging. Rate limit is 10 messages/minute/session in-process; use a shared limiter if deploying multiple workers.
-- Explicit quantities adjacent to an action word (`chốt`, `mua`, `lấy`, `đặt`, `số lượng`) are reconciled against the original message before stock validation. Missing quantity is never defaulted to one; the assistant requests clarification.
+## 5. Vòng đời Chỉ mục và Kế hoạch Nâng cấp (Lifecycle & Re-index)
 
-## Evaluation and demo
-
-`eval/run_evaluation.py` runs 14 cases plus API workflow/security probes against an isolated temporary SQLite DB, in FakeLLM or Ollama mode. Full reports are in `eval/results_fake.json` and `eval/results_ollama.json`. On 2026-10-20 both passed 14/14, full API smoke and the cross-session 404/spoofed checkout 422 probes. The provider/format failures are injected at the extractor boundary, not an actual Ollama outage. See `docs/evaluation_results.md` for rubric, failure analysis and limits, and `docs/demo_script.md` for the timed demo.
-
-## API inventory
-
-- `GET /api/v1/health`
-- `GET /api/v1/products?q=&category=`
-- `GET /api/v1/products/{product_id}`
-- `POST /api/v1/session`, `GET /api/v1/session`
-- `GET /api/v1/cart`
-- `POST /api/v1/cart/items`, `PATCH /api/v1/cart/items/{sku}`, `DELETE /api/v1/cart/items/{sku}`
-- `POST /api/v1/orders`, `GET /api/v1/orders`, `GET /api/v1/orders/{order_id}`
-- `POST /api/v1/chat/messages`
-
-Set `LLM_PROVIDER=fake` for offline demo. Optional Ollama uses `LLM_PROVIDER=ollama`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, and `LLM_TIMEOUT_SECONDS`; see README. Provider errors and invalid JSON fail without an order side effect.
-
-See README for local setup and request examples. Full course requirements and the UI reference are kept under `given/`.
+* Hệ thống hỗ trợ cập nhật chỉ mục nguyên tử từ phiên bản **1.0** lên **1.1** (mô phỏng thay đổi chính sách đổi trả từ 7 ngày lên 14 ngày).
+* Khi kích hoạt phiên bản mới:
+  * Nạp và kiểm tra tính toàn vẹn của bundle mới.
+  * Hoán đổi con trỏ chỉ mục active.
+  * Hủy bỏ cache truy vấn cũ (Cache Invalidation).
+  * Ghi nhận kiểm toán an toàn vào bảng `audit_logs` (chỉ ghi metadata, không chứa secrets hay PII).
+* Khả năng **Rollback** tức thì trong 100ms khi phát hiện sự cố.

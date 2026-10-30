@@ -7,12 +7,15 @@ import {
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 const money = (value) => new Intl.NumberFormat("vi-VN").format(value) + "₫";
 
+let activeRole = "customer";
+
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: "include",
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
+      "X-User-Role": activeRole,
       ...options.headers,
     },
   });
@@ -56,7 +59,28 @@ function App() {
   const [selectedSku, setSelectedSku] = useState("");
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [cartNotice, setCartNotice] = useState("");
+  const [demoRole, setDemoRoleState] = useState("customer");
+  const [ragVersion, setRagVersion] = useState("1.0");
+  const [reindexNotice, setReindexNotice] = useState("");
   const didInitialize = useRef(false);
+
+  const switchRole = (newRole) => {
+    activeRole = newRole;
+    setDemoRoleState(newRole);
+  };
+
+  const doReindex = async (ver) => {
+    try {
+      setReindexNotice(`Đang re-index v${ver}...`);
+      const res = await api(`/rag/reindex?version=${ver}`, { method: "POST" });
+      setRagVersion(res.active_version);
+      setReindexNotice(`Đã kích hoạt RAG v${res.active_version}!`);
+      setTimeout(() => setReindexNotice(""), 4000);
+    } catch (err) {
+      setReindexNotice(`Lỗi: ${err.message}`);
+      setTimeout(() => setReindexNotice(""), 4000);
+    }
+  };
 
   useEffect(() => {
     if (didInitialize.current) return;
@@ -64,6 +88,10 @@ function App() {
     api("/session", { method: "POST" })
       .then(() => api("/cart"))
       .then((data) => setCart(data))
+      .then(() => api("/rag/status"))
+      .then((status) => {
+        if (status && status.active_version) setRagVersion(status.active_version);
+      })
       .then(() => setSessionReady(true))
       .catch((err) => setSessionError(`Không khởi tạo được phiên mua sắm: ${err.message}`));
   }, []);
@@ -179,9 +207,16 @@ function App() {
     setChatSending(true);
     try {
       const result = await api("/chat/messages", { method: "POST", body: JSON.stringify({ message, client_message_id: crypto.randomUUID() }) });
-      setChatMessages((items) => [...items, { role: "assistant", message: result.message, route: result.route, order_id: result.order_id }]);
+      setChatMessages((items) => [...items, {
+        role: "assistant",
+        message: result.message,
+        route: result.route,
+        status: result.status,
+        citations: result.citations || [],
+        order_id: result.order_id
+      }]);
     } catch (err) {
-      setChatMessages((items) => [...items, { role: "assistant", message: `${err.message} Bạn có thể gửi lại tin nhắn.`, route: "error" }]);
+      setChatMessages((items) => [...items, { role: "assistant", message: `${err.message} Bạn có thể gửi lại tin nhắn.`, route: "error", citations: [] }]);
     } finally {
       setChatSending(false);
     }
@@ -189,6 +224,56 @@ function App() {
 
   return (
     <>
+      <div style={{ background: "#1e293b", color: "#f8fafc", padding: "8px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.85rem", borderBottom: "1px solid #334155" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ color: "#38bdf8", fontWeight: 700 }}>✦ DEMO PHÂN QUYỀN RAG:</span>
+          {[
+            { id: "customer", label: "Khách hàng (Customer)" },
+            { id: "staff", label: "Nhân viên (Staff)" },
+            { id: "admin", label: "Quản trị viên (Admin)" }
+          ].map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => switchRole(r.id)}
+              style={{
+                background: demoRole === r.id ? "#ee4d2d" : "#334155",
+                color: "#fff",
+                border: "none",
+                borderRadius: 4,
+                padding: "3px 10px",
+                cursor: "pointer",
+                fontWeight: demoRole === r.id ? 700 : 500,
+                transition: "all 0.15s ease"
+              }}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span>Chỉ mục RAG: <b style={{ color: "#4ade80" }}>v{ragVersion}</b> (31 chunks)</span>
+          {demoRole === "admin" && (
+            <>
+              <button
+                type="button"
+                onClick={() => doReindex("1.1")}
+                style={{ background: "#16a34a", color: "#fff", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}
+              >
+                Re-index v1.1
+              </button>
+              <button
+                type="button"
+                onClick={() => doReindex("1.0")}
+                style={{ background: "#dc2626", color: "#fff", border: "none", borderRadius: 4, padding: "3px 8px", cursor: "pointer", fontWeight: 600 }}
+              >
+                Rollback v1.0
+              </button>
+            </>
+          )}
+          {reindexNotice && <span style={{ color: "#facc15", fontWeight: 600 }}>{reindexNotice}</span>}
+        </div>
+      </div>
       <div className="top-strip">
         <div className="top-inner">
           <div className="top-links"><a href="#about">Kênh Người Bán</a><i /> <a href="#download">Tải ứng dụng</a><i /> <a href="#social">Kết nối với chúng tôi</a></div>
@@ -239,7 +324,39 @@ function App() {
       </main>
 
       <button className={chatOpen ? "chat-launcher chat-open" : "chat-launcher"} onClick={() => setChatOpen((open) => !open)} aria-label={chatOpen ? "Đóng trợ lý" : "Mở trợ lý mua sắm"}>{chatOpen ? <X size={20} /> : <><MessageCircle size={21} /><span>Trợ lý mua sắm</span><b>AI</b></>}</button>
-      {chatOpen && <section className="chat-preview" aria-label="Trợ lý mua sắm"><div className="chat-head"><span className="chat-avatar"><Sparkles size={17} /></span><div><b>Trợ lý mua sắm</b><small>{chatSending ? "Đang xử lý…" : "Hỗ trợ mua sắm demo"}</small></div><button onClick={() => setChatOpen(false)} aria-label="Đóng"><X size={18} /></button></div><div className="chat-body"><div className="chat-welcome">Xin chào! Mình có thể giúp bạn tìm hiểu sản phẩm và đặt hàng.</div>{chatMessages.map((item, index) => <div key={index} className={`chat-message ${item.role === "user" ? "chat-message-user" : "chat-message-assistant"}`}><span>{item.message}</span>{item.route && <small>{item.route === "pending_confirmation" ? "Đơn chờ xác nhận" : item.route === "needs_information" ? "Cần thêm thông tin" : item.route === "handoff" ? "Hỗ trợ nhân viên" : item.route === "out_of_stock" ? "Không đủ tồn kho" : ""}</small>}</div>)}{chatSending && <div className="chat-typing">Trợ lý đang soạn câu trả lời…</div>}</div><form className="chat-composer" onSubmit={sendChat}><input value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} maxLength={1500} placeholder="Hỏi giá, tồn kho hoặc đặt hàng…" disabled={!sessionReady || chatSending} /><button disabled={!sessionReady || chatSending || !chatDraft.trim()} aria-label="Gửi"><ChevronRight size={18} /></button></form></section>}
+      {chatOpen && <section className="chat-preview" aria-label="Trợ lý mua sắm"><div className="chat-head"><span className="chat-avatar"><Sparkles size={17} /></span><div><b>Trợ lý mua sắm</b><small>{chatSending ? "Đang xử lý…" : "Hỗ trợ mua sắm demo"}</small></div><button onClick={() => setChatOpen(false)} aria-label="Đóng"><X size={18} /></button></div>        <div className="chat-body">
+          <div className="chat-welcome">Xin chào! Mình có thể giúp bạn tìm hiểu thông số sản phẩm, chính sách đổi trả/bảo hành và đặt hàng nhanh chóng.</div>
+          {chatMessages.map((item, index) => (
+            <div key={index} className={`chat-message ${item.role === "user" ? "chat-message-user" : "chat-message-assistant"}`}>
+              <span>{item.message}</span>
+              {item.route && (
+                <small style={{ display: "inline-block", marginTop: 4, padding: "2px 6px", borderRadius: 4, background: item.route === "knowledge_query" ? "#e0f2fe" : item.route === "mixed" ? "#fef3c7" : item.status === "access_denied" ? "#fee2e2" : "rgba(0,0,0,0.05)", color: item.route === "knowledge_query" ? "#0284c7" : item.route === "mixed" ? "#b45309" : item.status === "access_denied" ? "#dc2626" : "inherit", fontWeight: 600 }}>
+                  {item.route === "knowledge_query" ? "📚 Hỏi đáp tài liệu (RAG)" :
+                   item.route === "mixed" ? "⚡ Hỗn hợp (RAG + Đơn hàng)" :
+                   item.route === "pending_confirmation" ? "✓ Đơn chờ xác nhận" :
+                   item.route === "needs_information" ? "ℹ Cần thêm thông tin" :
+                   item.route === "handoff" ? "👤 Hỗ trợ nhân viên" :
+                   item.route === "out_of_stock" ? "⚠ Không đủ tồn kho" :
+                   item.status === "access_denied" ? "🔒 Bị từ chối quyền truy cập" :
+                   item.status === "insufficient_evidence" ? "🔍 Thiếu dữ liệu tài liệu" : item.route}
+                </small>
+              )}
+              {item.citations && item.citations.length > 0 && (
+                <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px dashed rgba(0,0,0,0.12)", fontSize: "0.78rem" }}>
+                  <div style={{ fontWeight: 600, color: "#ea580c", display: "flex", alignItems: "center", gap: 4 }}>
+                    ✦ Nguồn trích dẫn ({item.citations.length}):
+                  </div>
+                  {item.citations.map((c, ci) => (
+                    <div key={ci} style={{ marginTop: 2, color: "#475569" }}>
+                      • <b>{c.source}</b> (v{c.version}) <i>— {c.section}</i>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {chatSending && <div className="chat-typing">Trợ lý đang soạn câu trả lời…</div>}
+        </div><form className="chat-composer" onSubmit={sendChat}><input value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} maxLength={1500} placeholder="Hỏi giá, tồn kho hoặc đặt hàng…" disabled={!sessionReady || chatSending} /><button disabled={!sessionReady || chatSending || !chatDraft.trim()} aria-label="Gửi"><ChevronRight size={18} /></button></form></section>}
       {(detailLoading || detailError || selectedProduct) && <div className="modal-backdrop" onClick={() => { setSelectedProduct(null); setDetailError(""); setCartNotice(""); }}><section className="product-modal" role="dialog" aria-modal="true" aria-label="Chi tiết sản phẩm" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => { setSelectedProduct(null); setDetailError(""); setCartNotice(""); }} aria-label="Đóng"><X size={19} /></button>{detailLoading ? <p>Đang tải chi tiết sản phẩm…</p> : detailError && !selectedProduct ? <p className="modal-error">{detailError}</p> : selectedProduct && <><img src={selectedProduct.image_url} alt={selectedProduct.name} /><div className="modal-content"><span className="product-category">{selectedProduct.category}</span><h2>{selectedProduct.name}</h2><p>{selectedProduct.description}</p><h3>Phân loại sản phẩm</h3><div className="variant-list">{selectedProduct.variants.map((variant) => <button type="button" className={selectedSku === variant.sku ? "variant-option chosen" : "variant-option"} key={variant.sku} onClick={() => { setSelectedSku(variant.sku); setSelectedQuantity(1); setCartNotice(""); }} disabled={variant.available_quantity < 1}><span><b>{Object.values(variant.attributes).join(" · ")}</b><small>SKU: {variant.sku}</small></span><strong>{money(variant.unit_price)}</strong><em>{variant.available_quantity > 0 ? `Còn ${variant.available_quantity}` : "Hết hàng"}</em></button>)}</div><div className="add-to-cart-row"><label>Số lượng <input type="number" min="1" step="1" max={selectedProduct.variants.find((variant) => variant.sku === selectedSku)?.available_quantity || 1} value={selectedQuantity} onChange={(event) => { const quantity = Math.floor(Number(event.target.value)); setSelectedQuantity(Number.isFinite(quantity) ? Math.max(1, quantity) : 1); }} /></label><button disabled={!sessionReady || !selectedSku} onClick={addToCart}>Thêm vào giỏ</button></div>{detailError && <p className="inline-error">{detailError}</p>}{cartNotice && <p className="success-inline">{cartNotice}</p>}<small className="modal-footnote">Thông tin được tải từ API catalog.</small></div></>}</section></div>}
       {cartOpen && <div className="modal-backdrop cart-backdrop" onClick={() => { setCartOpen(false); setLastOrder(null); }}><section className="cart-drawer" role="dialog" aria-modal="true" aria-label="Giỏ hàng" onClick={(event) => event.stopPropagation()}><header><div><span className="eyebrow">GROUP 7</span><h2>{lastOrder ? "Đã tạo đơn nháp" : "Giỏ hàng"}</h2></div><button className="modal-close" onClick={() => { setCartOpen(false); setLastOrder(null); }} aria-label="Đóng"><X size={19} /></button></header>{sessionError && <p className="inline-error">{sessionError}</p>}{lastOrder ? <div className="order-success"><span className="success-mark">✓</span><h3>Yêu cầu đặt hàng đã được ghi nhận</h3><p>Đơn <b>#{lastOrder.id.slice(0, 10).toUpperCase()}</b> đang chờ xác nhận. Chưa có thanh toán hoặc trừ kho.</p><div className="success-total">Tổng tiền <strong>{money(lastOrder.total_amount)}</strong></div><button onClick={() => { setCartOpen(false); setLastOrder(null); }}>Tiếp tục mua sắm</button></div> : <><div className="cart-items">{cart.items.length ? cart.items.map((item) => <div className="cart-item" key={item.sku}><div className="cart-item-main"><b>{item.product_name}</b><small>{Object.values(item.attributes).join(" · ")} · {item.sku}</small><strong>{money(item.unit_price)} <span>× {item.quantity}</span></strong>{item.quantity > item.available_quantity && <em>Kho hiện chỉ còn {item.available_quantity}</em>}</div><div className="quantity-control"><button onClick={() => updateCartQuantity(item.sku, item.quantity - 1)} aria-label="Giảm số lượng">−</button><span>{item.quantity}</span><button disabled={item.quantity >= item.available_quantity} onClick={() => updateCartQuantity(item.sku, item.quantity + 1)} aria-label="Tăng số lượng">+</button></div></div>) : <div className="empty-cart"><ShoppingCart size={30} /><p>Giỏ hàng đang trống.</p><small>Chọn một sản phẩm để bắt đầu.</small></div>}</div><form className="checkout-form" onSubmit={submitCheckout}><h3>Thông tin nhận hàng</h3><label>Người nhận<input required minLength="2" maxLength="120" value={checkoutData.recipient_name} onChange={(event) => setCheckoutData({ ...checkoutData, recipient_name: event.target.value })} placeholder="Tên người nhận demo" /></label><label>Số điện thoại<input required type="tel" minLength="8" maxLength="30" value={checkoutData.phone_number} onChange={(event) => setCheckoutData({ ...checkoutData, phone_number: event.target.value })} placeholder="0900000000 (số giả)" /></label><label>Địa chỉ giao hàng<textarea required minLength="10" maxLength="500" value={checkoutData.delivery_address} onChange={(event) => setCheckoutData({ ...checkoutData, delivery_address: event.target.value })} placeholder="Địa chỉ demo, không dùng thông tin thật" /></label>{checkoutError && <p className="inline-error">{checkoutError}</p>}<div className="cart-total"><span>Tạm tính</span><strong>{money(cart.subtotal)}</strong></div><small className="checkout-note">Đơn tạo ở trạng thái chờ xác nhận; tồn kho chưa bị trừ.</small><button className="checkout-submit" disabled={!cart.items.length || !sessionReady || isCheckingOut}>{isCheckingOut ? "Đang gửi…" : "Gửi yêu cầu đặt hàng"}</button></form></>}</section></div>}
     </>

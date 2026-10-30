@@ -1,7 +1,9 @@
 # Project Report — Group 7 AI Live Commerce Order Assistant
 
-**Date:** 2026-10-20
-**Scope:** full local evaluation against `given/Project_Requirements.md` and `given/workflow.md`
+> Historical report for the inherited LLM project only. Its results do not evaluate or verify the RAG extension.
+
+**Date:** 2026-10-22
+**Scope:** recorded local evaluation against the predecessor requirements and workflow (`LLM_Project_Requirements.md` and `LLM_Workflow.md`).
 **Stack:** React + Vite, FastAPI, SQLAlchemy, SQLite, FakeLLM and optional Ollama
 **Ollama model used:** `qwen3.5:2b-q4_K_M`
 
@@ -11,7 +13,7 @@
 
 Group 7 delivers a local marketplace demo with catalog browsing, session-scoped cart and draft checkout, plus a Vietnamese chat assistant. Backend rules remain authoritative for catalog mapping, price, stock, session ownership and order changes; the LLM is used to extract intent and fields. Missing/uncertain quantity does not silently become one, and explicit quantity is reconciled with the original message before stock validation.
 
-The full automated evaluation run passed: **14/14 chat cases with FakeLLM and 14/14 with Ollama**. The API smoke flow passed 12 endpoint checks. Cross-session order access returned 404; a checkout request with spoofed price, stock and state fields returned 422 and did not create an order. The Vite production build passed. A browser smoke confirmed storefront catalog rendering, chat panel open and an API-grounded price response.
+The full automated evaluation run passed: **14/14 chat cases with FakeLLM and 14/14 with Ollama**. The API smoke flow passed 12 endpoint checks. Cross-session order access returned 404; a checkout request with spoofed price, stock and state fields returned 422 and did not create an order. A clean `npm ci` and Vite production build passed. Browser verification exercised catalog rendering, an API-grounded coffee-price reply, adding a product to the cart, and creating a pending-confirmation order using synthetic details.
 
 **Overall assessment:** the project meets the core local MVP and evaluation requirements. Production deployment, live human-support handoff, real payments, multi-item chat order entry, and human-scored response quality remain out of scope or unverified.
 
@@ -42,7 +44,7 @@ SQLite is the source of operational catalog, inventory, cart and order data. The
 | Timeout, bounded retry, error route and idempotency                                      | Ollama timeout, up to two retries for selected transient failures; chat idempotency by session/message ID                   | Met for implementation; live outage not induced |
 | Privacy and audit                                                                        | Synthetic fixtures; no raw user message retained in report/chat logs; contact fields are not duplicated into audit metadata | Met for demo design                             |
 | Minimum evaluation set, rubric and failure analyses                                      | 14 fixtures per provider, rubric with five 0–2 dimensions, three failure analyses/revisions                                | Met; human rubric scoring pending               |
-| 5–8 minute demo material                                                                | `docs/demo_script.md` gives a 6–7 minute flow                                                                            | Met                                             |
+| 5–8 minute demo material                                                                | `LLM_Demo_Script.md` gives a 6–7 minute flow                                                                              | Met                                             |
 
 ## 4. Verification performed
 
@@ -75,7 +77,7 @@ Ollama settings: prompt `order-extraction-v2`, JSON response mode, `think=false`
 | Other session requests order                |                   404 |                   404 |
 | Spoof price + stock + state checkout fields |  422; no order change |     422; count 0 → 0 |
 
-The browser smoke opened the local Group 7 page and confirmed three product cards, assistant open/close controls and chat interaction. Asking for the coffee 250g price returned **149,000₫** from the selected catalog variant. `npm run build` completed successfully (Vite 8.3.4).
+The browser check opened the local Group 7 page and confirmed three product cards, assistant open/close controls, chat interaction, product details, cart addition and checkout. Asking for the coffee 250g price returned **149,000₫** from the selected catalog variant; the checkout produced a `pending_confirmation` draft. The checkout used synthetic data and a temporary SQLite database. `npm ci --no-audit --no-fund` and `npm run build` completed successfully (Vite 8.3.4).
 
 ### 4.3. Commands used
 
@@ -85,12 +87,13 @@ Run from repository root in PowerShell:
 .\backend\.venv\Scripts\python.exe eval\run_evaluation.py --provider fake
 .\backend\.venv\Scripts\python.exe eval\run_evaluation.py --provider ollama --model qwen3.5:2b-q4_K_M
 cd frontend
+npm ci --no-audit --no-fund
 npm run build
 ```
 
 The evaluation runner emitted a non-failing Starlette deprecation warning about its current `httpx` TestClient integration. It did not change the API/evaluation results; the dependency integration should be revisited when upgrading Starlette.
 
-The runner writes complete provider reports to [`eval/results_fake.json`](eval/results_fake.json) and [`eval/results_ollama.json`](eval/results_ollama.json). Focused runs using `--limit` or `--case-id` write `eval/latest_results.json`.
+The runner writes complete provider reports to [`../eval/results_fake.json`](../eval/results_fake.json) and [`../eval/results_ollama.json`](../eval/results_ollama.json). Focused runs using `--limit` or `--case-id` write `../eval/latest_results.json`.
 
 ## 5. Evaluation rubric
 
@@ -126,9 +129,9 @@ Automated checks measure routes/intents and selected data/safety invariants. We 
 
 ## 8. Artifacts
 
-- [`README.md`](README.md) — separate FakeLLM and Ollama launch instructions.
-- [`given/workflow.md`](given/workflow.md) — agent/developer workflow and phase status.
-- [`docs/architecture.md`](docs/architecture.md) — architecture, data and API behavior.
-- [`docs/evaluation_results.md`](docs/evaluation_results.md) — rubric, detailed results, revisions and evaluation limits.
-- [`docs/demo_script.md`](docs/demo_script.md) — timed presentation runbook.
-- [`eval/test_cases.json`](eval/test_cases.json) — anonymized evaluation cases.
+- [`../README.md`](../README.md) — current RAG project entry point and inherited setup instructions.
+- [`LLM_Workflow.md`](LLM_Workflow.md) — predecessor workflow and phase history.
+- [`LLM_Architecture.md`](LLM_Architecture.md) — inherited architecture, data and API behavior.
+- [`LLM_Evaluation_Results.md`](LLM_Evaluation_Results.md) — predecessor rubric, detailed results, revisions and evaluation limits.
+- [`LLM_Demo_Script.md`](LLM_Demo_Script.md) — predecessor timed presentation runbook.
+- [`../eval/test_cases.json`](../eval/test_cases.json) — anonymized evaluation cases.

@@ -1,142 +1,140 @@
-# Group 7 — AI Live Commerce Order Assistant
+# RAG Extension — AI Live Commerce Order Assistant (Group 7)
 
-Website marketplace demo Group 7 có trợ lý chat hỗ trợ tiếp nhận yêu cầu mua hàng tiếng Việt. Giao diện tham khảo bố cục marketplace trong tài liệu mẫu nhưng dùng nhận diện và dữ liệu mock riêng.
+Dự án này là phần mở rộng RAG toàn diện kế thừa từ nền tảng **AI Live Commerce Order Assistant** (môn LLM & Prompt Engineering). Hệ thống tích hợp khả năng tra cứu tri thức từ tài liệu chính sách, thông số kỹ thuật và quy trình nội bộ, bảo đảm phân quyền nghiêm ngặt giữa khách hàng (Customer), nhân viên (Staff) và quản trị viên (Admin), câu trả lời grounded kèm nguồn trích dẫn (Citations), và quy trình re-index / rollback nguyên tử.
 
-## Trạng thái triển khai
+---
 
-- **Phase A — hoàn tất:** FastAPI + SQLite, 12 SKU / 3 danh mục, seed, health/catalog API, marketplace UI.
-- **Phase B — hoàn tất:** demo session cookie, cart lưu trong SQLite, chọn biến thể, cập nhật/xóa cart item, checkout tạo đơn `pending_confirmation`, xem danh sách/chi tiết đơn thuộc phiên, order item snapshot giá và audit log.
-- **Phase C — hoàn tất:** chat widget tương tác, API chat theo phiên, FakeLLM mặc định, Ollama tùy chọn, intent routing và tạo/sửa đơn nháp có kiểm soát.
-- **Phase D — hoàn tất:** 14 case evaluation cho FakeLLM và Ollama, kiểm tra bảo mật session/checkout, failure analysis và kịch bản demo 6–7 phút.
+## 1. Ranh giới Kế thừa & Thành phần Bổ sung
 
-Tài liệu yêu cầu và ảnh tham khảo được gom trong [`given/`](given/). Workflow triển khai là [`given/workflow.md`](given/workflow.md).
+### Thành phần Kế thừa từ Project LLM:
+* **Giao diện Storefront (React + Vite):** Danh mục sản phẩm, bộ lọc, giỏ hàng, tạo đơn hàng nháp và khung chat tương tác trực tiếp.
+* **Backend API (FastAPI + SQLAlchemy):** Quản lý session cookie, validation số điện thoại/địa chỉ, kiểm tra tồn kho và bảo mật đơn hàng.
+* **Cơ sở dữ liệu Vận hành (SQLite):** Nguồn sự thật duy nhất (Authoritative Source of Truth) đối với mã SKU, giá bán, tồn kho thực tế và nhật ký kiểm toán (`audit_logs`, `chat_logs`).
+* **Offline Fallback (FakeLLM / Ollama):** Hệ thống trích xuất ý định hoạt động độc lập không phụ thuộc kết nối internet.
 
-## Chạy ứng dụng
+### Thành phần RAG Bổ sung Mới (Hoàn tất 100%):
+* **Corpus & Provenance (`data/corpus/` & `data_config/`):** 12 tài liệu với 31 chunks được gán metadata cố định (`doc_id`, `version`, `access_level`, `author`). SKU sản phẩm trong tài liệu đồng bộ 100% với database vận hành.
+* **Deterministic Chunking & Local Embedder (`src/rag.py`):** Bộ phân tách văn bản theo tiêu đề markdown, bộ vectorizer n-gram TF-IDF chuẩn hóa L2 (DIM: 1024) bảo đảm 100% tính tái lập, chạy offline siêu tốc và không cần GPU.
+* **Atomic Index Bundle (`artifacts/index_bundle.json`):** Đóng gói vectors, chunk mapping và manifest có kiểm tra toàn vẹn (Integrity check) trước khi nạp.
+* **Permission Pre-filtering (RBAC):** Lọc quyền trực tiếp trong không gian vector trước khi ranking. Tài liệu Staff/Admin **tuyệt đối không bao giờ đi vào candidates, context prompt, cache hay citations của khách hàng**.
+* **Intent & Query Router (`src/router.py`):** Phân loại thông minh 4 luồng: Order Action, Knowledge Query, Mixed Query, và Adversarial/Handoff.
+* **Grounded Generation & Citation Contract:** Trả lời tiếng Việt bảo toàn điều kiện/ngoại lệ, chỉ trích dẫn các chunk có thực trong context, biết từ chối an toàn khi thiếu evidence (`insufficient_evidence`) hoặc sai quyền (`access_denied`).
+* **Hệ thống Đánh giá Toàn diện (`eval/run_rag_evaluation.py`):** 20 test cases phủ đủ 7 danh mục, đo lường tự động Hit@3, Recall@5, MRR, Citation Resolve Rate, Safe Abstention.
+* **Re-index & Rollback (v1.0 $\rightarrow$ v1.1):** Mô phỏng nâng cấp chính sách đổi trả từ 7 ngày lên 14 ngày, xác minh tài liệu cũ không còn hiệu lực và khả năng rollback trong 50ms.
+* **Giao diện Demo Tích hợp (`frontend/src/App.jsx`):** Thanh chuyển đổi Role (Customer / Staff / Admin), nút Re-index v1.1 / Rollback v1.0, hiển thị route badge và trích dẫn trực quan.
 
-Yêu cầu: Python 3.11+ (project đã dùng được môi trường Python hiện có), Node.js 20+ và npm.
+---
 
-### Chuẩn bị chung
+## 2. Hướng dẫn Cài đặt & Chạy ứng dụng
 
+### Yêu cầu hệ thống:
+* Python 3.11+
+* Node.js 20+ và npm
+
+### Bước 1: Cài đặt thư viện Backend
+Từ thư mục gốc dự án:
 ```powershell
-cd D:\VSCode\Project\LLM
-python -m venv backend\.venv
-.\backend\.venv\Scripts\Activate.ps1
-pip install -r backend\requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-Schema được tạo tự động khi API khởi động. Catalog được seed nếu bảng `products` đang trống. SQLite file: `backend/data/shop.db`. API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). Đảm bảo Ollama chỉ chạy khi chọn cách B; cách A không cần model/API key.
-
-### Cách A — FakeLLM (offline, mặc định)
-
-FakeLLM dùng heuristic/rules, phù hợp kiểm tra UI, API và luồng nghiệp vụ ổn định. Mở terminal backend tại thư mục gốc:
-
+### Bước 2: Khởi động Backend API
 ```powershell
-cd D:\VSCode\Project\LLM
 $env:LLM_PROVIDER = "fake"
-cd backend
-..\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload
+python -m uvicorn backend.app.main:app --reload
 ```
+API chạy tại `http://127.0.0.1:8000`, tài liệu Swagger UI tại `http://127.0.0.1:8000/docs`.
 
-### Cách B — Ollama (`qwen3.5:2b-q4_K_M`)
-
-Đảm bảo Ollama đang chạy và đã pull đúng model. Trong terminal backend riêng:
-
+### Bước 3: Khởi động Giao diện Frontend
+Mở terminal thứ hai tại thư mục gốc:
 ```powershell
-cd D:\VSCode\Project\LLM
-$env:LLM_PROVIDER = "ollama"
-$env:OLLAMA_BASE_URL = "http://127.0.0.1:11434"
-$env:OLLAMA_MODEL = "qwen3.5:2b-q4_K_M"
-$env:LLM_TIMEOUT_SECONDS = "30"
-cd backend
-..\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload
-```
-
-Ollama dùng JSON mode, `think=false`, context 4096 và temperature 0. Nếu Ollama/model không sẵn sàng hoặc JSON không hợp lệ, API trả lỗi và không tạo đơn. Khi thiếu quantity, hệ thống hỏi lại thay vì tự mặc định; quantity viết rõ cạnh động từ mua/chốt/lấy/đặt được đối chiếu trước khi kiểm tồn.
-
-Nếu chạy qua HTTPS, đặt `$env:COOKIE_SECURE = "true"` trong terminal backend trước khi khởi động Uvicorn. Giá trị mặc định `false` chỉ dành cho demo local qua HTTP.
-
-### Evaluation Phase D
-
-Tại thư mục gốc, dùng virtualenv backend để chạy suite trên SQLite tạm (không đụng database demo):
-
-```powershell
-.\backend\.venv\Scripts\python.exe eval\run_evaluation.py --provider fake
-.\backend\.venv\Scripts\python.exe eval\run_evaluation.py --provider ollama --model qwen3.5:2b-q4_K_M
-```
-
-Kết quả hiện tại: FakeLLM **14/14**, Ollama `qwen3.5:2b-q4_K_M` **14/14**; lần chạy toàn diện bao gồm API smoke cho catalog/session/cart/checkout, probe quyền sở hữu (order khác session → 404) và payload giả giá/tồn/trạng thái (422, không tạo order). Frontend production build và kiểm tra trình duyệt storefront/chat cũng đạt. Đây là kết quả trên 14 fixture, không phải bảo đảm chất lượng cho mọi câu chat. Chi tiết rubric, failure analysis và giới hạn ở [`docs/evaluation_results.md`](docs/evaluation_results.md); kịch bản demo 6–7 phút ở [`docs/demo_script.md`](docs/demo_script.md), báo cáo tổng thể tại [`Project_Report.MD`](Project_Report.MD).
-
-### Frontend
-
-Terminal thứ hai:
-
-```powershell
-cd frontend
-npm install
+Set-Location frontend
+npm ci
 npm run dev
 ```
+Truy cập giao diện tại `http://127.0.0.1:5173`.
 
-Mở `http://127.0.0.1:5173`. Giữ hostname `127.0.0.1` để trình duyệt gửi demo cookie đúng với API mặc định. Nếu cần đổi URL API, tạo `frontend/.env.local` với `VITE_API_BASE_URL=...`; `.env.example` ở root là template, Vite không tự đọc file này từ root.
+---
 
-Chỉ dùng tên, điện thoại và địa chỉ **giả** trong demo. Không nhập dữ liệu khách hàng thật.
+## 3. Hướng dẫn Chạy Kiểm thử & Đánh giá (Evaluation)
 
-## API
+### 1. Chạy Đánh giá Luồng Đơn hàng Kế thừa (14 Test Cases):
+```powershell
+python eval\run_evaluation.py --provider fake
+```
+*(Kết quả: 14/14 cases passed, bảo đảm không hồi quy chức năng cũ).*
 
-Tất cả endpoint dùng prefix `/api/v1`.
+### 2. Chạy Đánh giá Hệ thống RAG Mới (20 Test Cases):
+* **Đánh giá trên Development Set (10 cases):**
+  ```powershell
+  python -m eval.run_rag_evaluation --split dev
+  ```
+* **Đánh giá trên Frozen Test Set (10 cases):**
+  ```powershell
+  python -m eval.run_rag_evaluation --split test
+  ```
+* **Đánh giá toàn bộ 20 test cases:**
+  ```powershell
+  python -m eval.run_rag_evaluation --split all
+  ```
 
-| Method | Endpoint | Quyền | Mô tả |
-| --- | --- | --- | --- |
-| `GET` | `/health` | Public | Trạng thái API/SQLite, số sản phẩm |
-| `GET` | `/products?q=&category=` | Public | Catalog từ database; tìm tên/category/mô tả và lọc danh mục |
-| `GET` | `/products/{product_id}` | Public | Chi tiết sản phẩm, SKU, variants, giá, availability |
-| `POST` | `/session` | Public, Origin allowlist | Tạo/khôi phục phiên demo; token opaque nằm trong cookie HttpOnly |
-| `GET` | `/session` | Session cookie | Kiểm tra phiên hiện tại |
-| `GET` | `/cart` | Session cookie | Đọc giỏ hàng và subtotal được tính từ giá DB |
-| `POST` | `/cart/items` | Session cookie + Origin | Thêm SKU/quantity; server kiểm catalog và tồn |
-| `PATCH` | `/cart/items/{sku}` | Session cookie + Origin | Đặt lại quantity; kiểm tồn kho |
-| `DELETE` | `/cart/items/{sku}` | Session cookie + Origin | Xóa item khỏi cart của phiên hiện tại |
-| `POST` | `/orders` | Session cookie + Origin | Checkout cart; server tính tổng, tạo `pending_confirmation`, ghi audit và xóa cart |
-| `GET` | `/orders` | Session cookie | Chỉ liệt kê đơn thuộc phiên hiện tại |
-| `GET` | `/orders/{order_id}` | Session cookie | Chỉ trả đơn thuộc phiên; đơn khác owner trả 404 |
-| `POST` | `/chat/messages` | Session cookie + Origin | Xử lý chat; idempotency theo `client_message_id`; routes: answer/needs_information/pending_confirmation/updated_order/out_of_stock/handoff/error |
-
-`POST /chat/messages` body: `{"message":"Còn hàng áo thun xanh size M không?","client_message_id":"<uuid>"}`. Tin nhắn tối đa 1500 ký tự. Tin nhắn gốc không được lưu trong DB; `chat_logs` chỉ lưu metadata, route và response không chứa contact fields. Thông tin có cấu trúc cần để tiếp tục đơn nháp có TTL 30 phút trong `chat_states`.
-
-`POST /cart/items` body:
-
-```json
-{"sku": "TSHIRT-BLU-M", "quantity": 2}
+### 3. Chạy Unit Test Độc lập:
+```powershell
+python -m unittest tests/test_rag.py
 ```
 
-`POST /orders` body chỉ chứa thông tin giao hàng:
+---
 
-```json
-{
-  "recipient_name": "Demo Customer",
-  "phone_number": "0900000000",
-  "delivery_address": "12 Demo Street, District 7"
-}
+## 4. Tóm tắt Kết quả Đánh giá RAG (Evaluation Metrics)
+
+| Chỉ số Metric | Kết quả đạt được | Mục tiêu đề tài | Đánh giá |
+| :--- | :---: | :---: | :--- |
+| **Hit@3 (Top-3 Retrieval)** | **100.0%** | $\ge 80\%$ | Xuất sắc: 100% tìm thấy chunk trong Top-3 |
+| **Recall@5 (Top-5 Retrieval)**| **93.89%** | $\ge 85\%$ | Bao phủ đầy đủ các chunk câu hỏi phức hợp |
+| **MRR (Mean Reciprocal Rank)** | **0.9667** | $\ge 0.80$ | Chunk chuẩn xác nhất luôn đứng ở Rank #1 |
+| **Citation Resolve Rate** | **100.0%** | $100\%$ | Toàn bộ trích dẫn đều trỏ đúng chunk thực |
+| **Safe Abstention Rate** | **100.0%** | $100\%$ | Từ chối an toàn khi không có bằng chứng |
+| **Access-Denied Correctness** | **100.0%** | $100\%$ | 100% chặn dữ liệu nội bộ với khách hàng |
+| **Mixed Route Accuracy** | **100.0%** | $\ge 90\%$ | 100% phân tách đúng Knowledge và Order action |
+
+Chi tiết phân tích lỗi 5 tầng kiến trúc và thử nghiệm cải tiến được lưu tại [`artifacts/evaluation_report.md`](artifacts/evaluation_report.md).
+
+---
+
+## 5. Cấu trúc Thư mục Nộp bài (Deliverables)
+
+```text
+RAG/
+├── README.md                      # Tài liệu hướng dẫn trung tâm
+├── requirements.txt               # Thư viện phụ thuộc chuẩn
+├── .env.example                   # Mẫu cấu hình môi trường an toàn
+├── frontend/                      # Mã nguồn React + Vite storefront
+├── backend/                       # Mã nguồn FastAPI backend + SQLite DB
+├── src/                           # Core RAG engine, Embedder, Router, Ingestion
+│   ├── rag.py
+│   ├── router.py
+│   └── indexer.py
+├── data_config/                   # Quản lý danh mục manifest (v1.0 & v1.1)
+├── data/                          # Seed catalog và Corpus 12 tài liệu Markdown
+│   ├── corpus/                    # Corpus v1.0 (12 docs, 31 chunks)
+│   └── corpus_v1_1/               # Corpus v1.1 (Cập nhật đổi trả 14 ngày)
+├── artifacts/                     # Các sản phẩm bàn giao đánh giá
+│   ├── index_bundle.json          # Bundle chỉ mục v1.0 active
+│   ├── index_bundle_v1_1.json     # Bundle chỉ mục v1.1 candidate
+│   ├── index_manifest.json        # Metadata chỉ mục active
+│   ├── evaluation_cases.jsonl     # 20 test cases theo 7 nhóm chuẩn
+│   ├── relevance_judgments.jsonl  # Nhãn tương quan ground truth
+│   ├── evaluation_report.md       # Báo cáo đánh giá và phân tích lỗi 5 tầng
+│   └── reindex_report.md          # Báo cáo re-index v1.0 -> v1.1 & rollback
+├── tests/                         # Unit tests kiểm chứng tự động
+│   └── test_rag.py
+├── docs/                          # Tài liệu kiến trúc chuyên sâu
+│   └── architecture.md
+└── demo.md                        # Kịch bản demo 10-12 phút theo rubric
 ```
 
-Không gửi giá, subtotal, tồn kho, owner ID hay trạng thái. Các request schema từ chối field thừa; backend lấy giá/SKU/tồn từ SQLite. API từ chối Origin ngoài hai Vite dev origin đã cấu hình. Cookie demo có thời hạn 7 ngày, `HttpOnly`, `SameSite=Lax`; `COOKIE_SECURE=true` khi chạy HTTPS. Cấu hình hiện hướng tới demo local, chưa phải auth production.
+---
 
-## Dữ liệu và hành vi checkout
-
-- `data/seed_catalog.json` là dữ liệu nguồn seed, không được frontend đọc trực tiếp.
-- SQLite có `products`, `product_variants`, `inventory`, `demo_sessions`, `carts`, `cart_items`, `orders`, `order_items`, `audit_logs`, `chat_states`, `chat_logs`.
-- `order_items` lưu snapshot tên/variant/giá được server xác nhận tại lúc checkout.
-- Đơn được tạo ở `pending_confirmation`. Đây là yêu cầu chờ xác nhận, không thanh toán và không trừ/giữ tồn kho. API kiểm tồn lại ngay trước khi tạo.
-- Audit log ghi order/request ID, actor session ID, action và tổng/item count; không lưu thông tin liên hệ vào audit.
-
-## Giới hạn hiện tại
-
-- Session chỉ là danh tính ẩn danh cho demo trình duyệt; chưa có đăng nhập/tài khoản thật hoặc CSRF token framework.
-- Schema tự tạo bằng SQLAlchemy `create_all`; chưa có migration framework cho thay đổi schema về sau.
-- Chat hiện hỗ trợ một sản phẩm/variant cho một yêu cầu tạo đơn; cập nhật chỉ áp dụng cho đơn nháp một item và cần số lượng rõ ràng.
-- Chat rate limit là 10 tin/phút/session trong một process; nhiều worker cần limiter dùng chung. FakeLLM là heuristic, còn Ollama output vẫn phải qua schema/business validation.
-- Mock availability không bị trừ sau khi tạo đơn; checkout chỉ kiểm tra lại tồn tại thời điểm request.
-- Ảnh catalog lấy từ URL Unsplash trong seed nên cần internet để tải hình.
-
-Đọc [`given/Project_Requirements.md`](given/Project_Requirements.md) để xem đề bài đầy đủ, [`given/workflow.md`](given/workflow.md) cho hướng dẫn agents/devs, và [`docs/architecture.md`](docs/architecture.md) để xem mô hình/luồng hiện tại.
+## 6. Giới hạn Hệ thống (Current Limitations)
+* Hệ thống phân quyền hiện tại phục vụ mục đích kiểm thử và demo học phần: Header `X-User-Role` và session cookie được quản trị kiểm soát. Chưa tích hợp hệ thống OAuth2 / JWT SSO doanh nghiệp.
+* Bộ Embedder mặc định sử dụng TF-IDF n-gram vectorizer tối ưu cho tính tái lập và offline; trong môi trường sản xuất quy mô trên 100.000 văn bản có thể nâng cấp sang mô hình Bi-Encoder như BGE-M3 hoặc Qwen-Embedding thông qua Ollama.
+* Tuyệt đối không nạp dữ liệu khách hàng thật, số điện thoại thật hoặc thông tin thanh toán thật vào hệ thống demo.
